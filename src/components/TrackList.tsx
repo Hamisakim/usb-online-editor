@@ -6,6 +6,8 @@ interface TrackListProps {
   playlistEntries: PlaylistEntry[];
   playlistTree: Map<number, PlaylistTreeNode>;
   selectedPlaylistId: number | null;
+  onPlayTrack?: (track: Track) => void;
+  currentTrackId?: number | null;
 }
 
 type SortKey = 'title' | 'artist' | 'bpm' | 'key' | 'duration' | 'genre';
@@ -16,6 +18,8 @@ export function TrackList({
   playlistEntries,
   playlistTree,
   selectedPlaylistId,
+  onPlayTrack,
+  currentTrackId,
 }: TrackListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('title');
@@ -169,21 +173,43 @@ export function TrackList({
             {searchQuery ? 'No tracks match your search' : 'No tracks in this playlist'}
           </div>
         ) : (
-          displayTracks.map((track, index) => (
-            <div
-              key={`${track.id}-${index}`}
-              className="grid grid-cols-[1fr_1fr_80px_80px_70px_120px] gap-4 px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-900/50 transition-colors text-sm"
-            >
-              <div className="truncate text-white">{track.title || 'Unknown'}</div>
-              <div className="truncate text-zinc-400">{track.artist || 'Unknown'}</div>
-              <div className="text-zinc-400">{track.tempo ? formatBPM(track.tempo) : '-'}</div>
-              <div className="text-zinc-400">{track.key || '-'}</div>
-              <div className="text-zinc-400">{track.duration ? formatDuration(track.duration) : '-'}</div>
-              <div className="truncate text-zinc-500">{track.genre || '-'}</div>
-            </div>
-          ))
+          displayTracks.map((track, index) => {
+            const isPlaying = currentTrackId === track.id;
+            return (
+              <div
+                key={`${track.id}-${index}`}
+                onClick={() => onPlayTrack?.(track)}
+                onDoubleClick={() => onPlayTrack?.(track)}
+                className={`grid grid-cols-[1fr_1fr_80px_80px_70px_120px] gap-4 px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-900/50 transition-colors text-sm cursor-pointer ${
+                  isPlaying ? 'bg-purple-900/30' : ''
+                }`}
+              >
+                <div className="truncate flex items-center gap-2">
+                  {isPlaying && (
+                    <span className="text-purple-400">
+                      <PlayingIcon />
+                    </span>
+                  )}
+                  <span className={isPlaying ? 'text-purple-300' : 'text-white'}>{track.title || 'Unknown'}</span>
+                </div>
+                <div className={`truncate ${isPlaying ? 'text-purple-300' : 'text-zinc-400'}`}>{track.artist || 'Unknown'}</div>
+                <div className="text-zinc-400">{track.tempo ? formatBPM(track.tempo) : '-'}</div>
+                <div className="text-zinc-400">{track.key || '-'}</div>
+                <div className="text-zinc-400">{track.duration ? formatDuration(track.duration) : '-'}</div>
+                <div className="truncate text-zinc-500">{track.genre || '-'}</div>
+              </div>
+            );
+          })
         )}
       </div>
     </div>
+  );
+}
+
+function PlayingIcon() {
+  return (
+    <svg className="w-4 h-4 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+      <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" />
+    </svg>
   );
 }

@@ -130,10 +130,41 @@ export function useFileSystem() {
     });
   }, [state.isSupported]);
 
+  // Load an audio file from the USB based on path
+  const loadAudioFile = useCallback(async (filePath: string): Promise<string | null> => {
+    if (!state.directoryHandle) return null;
+
+    try {
+      // Rekordbox stores paths like "/Contents/Artist/Album/track.mp3"
+      // We need to navigate from the USB root
+      const pathParts = filePath.split('/').filter(p => p.length > 0);
+
+      let currentHandle: FileSystemDirectoryHandle = state.directoryHandle;
+
+      // Navigate to the file's directory
+      for (let i = 0; i < pathParts.length - 1; i++) {
+        currentHandle = await currentHandle.getDirectoryHandle(pathParts[i]);
+      }
+
+      // Get the file
+      const fileName = pathParts[pathParts.length - 1];
+      const fileHandle = await currentHandle.getFileHandle(fileName);
+      const file = await fileHandle.getFile();
+
+      // Create a blob URL for playback
+      const url = URL.createObjectURL(file);
+      return url;
+    } catch (err) {
+      console.error('Error loading audio file:', err, filePath);
+      return null;
+    }
+  }, [state.directoryHandle]);
+
   return {
     ...state,
     selectUSBFolder,
     clearDatabase,
+    loadAudioFile,
   };
 }
 
