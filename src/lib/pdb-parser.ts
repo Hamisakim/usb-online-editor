@@ -49,9 +49,11 @@ interface PageHeader {
 class BinaryReader {
   private view: DataView;
   private offset: number = 0;
+  public readonly length: number;
 
   constructor(buffer: ArrayBuffer) {
     this.view = new DataView(buffer);
+    this.length = buffer.byteLength;
   }
 
   seek(offset: number) {
@@ -62,25 +64,35 @@ class BinaryReader {
     return this.offset;
   }
 
+  canRead(bytes: number): boolean {
+    return this.offset + bytes <= this.length;
+  }
+
   readU8(): number {
+    if (!this.canRead(1)) return 0;
     const value = this.view.getUint8(this.offset);
     this.offset += 1;
     return value;
   }
 
   readU16(): number {
+    if (!this.canRead(2)) return 0;
     const value = this.view.getUint16(this.offset, true); // little-endian
     this.offset += 2;
     return value;
   }
 
   readU32(): number {
+    if (!this.canRead(4)) return 0;
     const value = this.view.getUint32(this.offset, true); // little-endian
     this.offset += 4;
     return value;
   }
 
   readBytes(length: number): Uint8Array {
+    if (!this.canRead(length)) {
+      return new Uint8Array(0);
+    }
     const bytes = new Uint8Array(this.view.buffer, this.offset, length);
     this.offset += length;
     return bytes;
@@ -91,38 +103,40 @@ class BinaryReader {
     if (stringOffset === 0) return '';
 
     const stringPos = baseOffset + stringOffset;
-    if (stringPos >= this.view.byteLength) return '';
+    if (stringPos >= this.length || stringPos < 0) return '';
 
     this.seek(stringPos);
     const lengthByte = this.readU8();
 
-    // Check string type
-    if (lengthByte === 0x40) {
-      // Long ASCII string
-      const length = this.readU8();
-      if (length === 0) return '';
-      const bytes = this.readBytes(length);
-      return new TextDecoder('ascii').decode(bytes);
-    } else if (lengthByte === 0x90) {
-      // Long UTF-16LE string
-      const length = this.readU16();
-      if (length === 0) return '';
-      const bytes = this.readBytes(length);
-      return new TextDecoder('utf-16le').decode(bytes);
-    } else if ((lengthByte & 0x3f) === lengthByte) {
-      // Short ASCII string - length is in the byte itself
-      // Decode: (byte - 1) / 2 - 1 for isrc field style
-      // Or: byte / 2 for most fields
-      const length = Math.floor(lengthByte / 2);
-      if (length === 0) return '';
-      const bytes = this.readBytes(length);
-      return new TextDecoder('ascii').decode(bytes).replace(/\0+$/, '');
-    } else {
-      // Likely short string encoded differently
-      const length = (lengthByte - 1) / 2 - 1;
-      if (length <= 0 || length > 127) return '';
-      const bytes = this.readBytes(Math.floor(length));
-      return new TextDecoder('ascii').decode(bytes).replace(/\0+$/, '');
+    try {
+      // Check string type
+      if (lengthByte === 0x40) {
+        // Long ASCII string
+        const length = this.readU8();
+        if (length === 0 || !this.canRead(length)) return '';
+        const bytes = this.readBytes(length);
+        return new TextDecoder('ascii').decode(bytes);
+      } else if (lengthByte === 0x90) {
+        // Long UTF-16LE string
+        const length = this.readU16();
+        if (length === 0 || !this.canRead(length)) return '';
+        const bytes = this.readBytes(length);
+        return new TextDecoder('utf-16le').decode(bytes);
+      } else if ((lengthByte & 0x3f) === lengthByte) {
+        // Short ASCII string - length is in the byte itself
+        const length = Math.floor(lengthByte / 2);
+        if (length === 0 || !this.canRead(length)) return '';
+        const bytes = this.readBytes(length);
+        return new TextDecoder('ascii').decode(bytes).replace(/\0+$/, '');
+      } else {
+        // Likely short string encoded differently
+        const length = (lengthByte - 1) / 2 - 1;
+        if (length <= 0 || length > 127 || !this.canRead(Math.floor(length))) return '';
+        const bytes = this.readBytes(Math.floor(length));
+        return new TextDecoder('ascii').decode(bytes).replace(/\0+$/, '');
+      }
+    } catch {
+      return '';
     }
   }
 }
@@ -169,6 +183,12 @@ export class PDBParser {
 
   private parsePageHeader(pageIndex: number): PageHeader | null {
     const pageOffset = pageIndex * this.pageSize;
+
+    // Bounds check
+    if (pageOffset < 0 || pageOffset + 40 > this.reader.length) {
+      return null;
+    }
+
     this.reader.seek(pageOffset);
 
     // Skip gap (4 bytes)
@@ -222,13 +242,23 @@ export class PDBParser {
     if (!table) return;
 
     let currentPage = table.firstPage;
+    const maxPages = 100000; // Safety limit
+    let pageCount = 0;
 
-    while (currentPage !== 0) {
+    while (currentPage !== 0 && pageCount < maxPages) {
+      pageCount++;
+
       const header = this.parsePageHeader(currentPage);
       if (!header) break;
 
       const pageOffset = currentPage * this.pageSize;
       const numRows = header.numRowsLarge > 0 ? header.numRowsLarge : header.numRowsSmall;
+
+      // Safety check for reasonable row count
+      if (numRows > 10000 || numRows < 0) {
+        currentPage = header.nextPage;
+        continue;
+      }
 
       // Row presence bitmap starts at offset 40
       const bitmapOffset = pageOffset + 40;
@@ -246,17 +276,27 @@ export class PDBParser {
         const byteIndex = Math.floor(rowIndex / 8);
         const bitIndex = rowIndex % 8;
 
+        // Bounds check for bitmap read
+        if (bitmapOffset + byteIndex >= this.reader.length) break;
+
         this.reader.seek(bitmapOffset + byteIndex);
         const bitmapByte = this.reader.readU8();
         const isPresent = (bitmapByte & (1 << bitIndex)) !== 0;
 
         if (isPresent) {
+          // Bounds check for row offset read
+          if (rowOffsetsStart + rowIndex * 2 + 2 > this.reader.length) break;
+
           // Read row offset
           this.reader.seek(rowOffsetsStart + rowIndex * 2);
           const rowOffset = this.reader.readU16();
 
           const absoluteOffset = pageOffset + rowOffset;
-          yield { offset: absoluteOffset, pageOffset };
+
+          // Validate offset is within bounds
+          if (absoluteOffset > 0 && absoluteOffset < this.reader.length) {
+            yield { offset: absoluteOffset, pageOffset };
+          }
         }
       }
 
@@ -468,83 +508,137 @@ export class PDBParser {
     };
 
     // Parse artists first (tracks reference them)
-    for (const { offset } of this.iterateTableRows(PageType.Artists)) {
-      const artist = this.parseArtist(offset);
-      if (artist?.id !== undefined) {
-        db.artists.set(artist.id, artist as Artist);
+    try {
+      for (const { offset } of this.iterateTableRows(PageType.Artists)) {
+        try {
+          const artist = this.parseArtist(offset);
+          if (artist?.id !== undefined) {
+            db.artists.set(artist.id, artist as Artist);
+          }
+        } catch { /* skip bad row */ }
       }
+    } catch (e) {
+      console.warn('[PDB Parser] Error parsing artists:', e);
     }
 
     // Parse albums
-    for (const { offset } of this.iterateTableRows(PageType.Albums)) {
-      const album = this.parseAlbum(offset);
-      if (album?.id !== undefined) {
-        db.albums.set(album.id, album as Album);
+    try {
+      for (const { offset } of this.iterateTableRows(PageType.Albums)) {
+        try {
+          const album = this.parseAlbum(offset);
+          if (album?.id !== undefined) {
+            db.albums.set(album.id, album as Album);
+          }
+        } catch { /* skip bad row */ }
       }
+    } catch (e) {
+      console.warn('[PDB Parser] Error parsing albums:', e);
     }
 
     // Parse genres
-    for (const { offset } of this.iterateTableRows(PageType.Genres)) {
-      const genre = this.parseGenre(offset);
-      if (genre?.id !== undefined) {
-        db.genres.set(genre.id, genre as Genre);
+    try {
+      for (const { offset } of this.iterateTableRows(PageType.Genres)) {
+        try {
+          const genre = this.parseGenre(offset);
+          if (genre?.id !== undefined) {
+            db.genres.set(genre.id, genre as Genre);
+          }
+        } catch { /* skip bad row */ }
       }
+    } catch (e) {
+      console.warn('[PDB Parser] Error parsing genres:', e);
     }
 
     // Parse keys
-    for (const { offset } of this.iterateTableRows(PageType.Keys)) {
-      const key = this.parseKey(offset);
-      if (key?.id !== undefined) {
-        db.keys.set(key.id, key as Key);
+    try {
+      for (const { offset } of this.iterateTableRows(PageType.Keys)) {
+        try {
+          const key = this.parseKey(offset);
+          if (key?.id !== undefined) {
+            db.keys.set(key.id, key as Key);
+          }
+        } catch { /* skip bad row */ }
       }
+    } catch (e) {
+      console.warn('[PDB Parser] Error parsing keys:', e);
     }
 
     // Parse colors
-    for (const { offset } of this.iterateTableRows(PageType.Colors)) {
-      const color = this.parseColor(offset);
-      if (color?.id !== undefined) {
-        db.colors.set(color.id, color as Color);
+    try {
+      for (const { offset } of this.iterateTableRows(PageType.Colors)) {
+        try {
+          const color = this.parseColor(offset);
+          if (color?.id !== undefined) {
+            db.colors.set(color.id, color as Color);
+          }
+        } catch { /* skip bad row */ }
       }
+    } catch (e) {
+      console.warn('[PDB Parser] Error parsing colors:', e);
     }
 
     // Parse artwork
-    for (const { offset } of this.iterateTableRows(PageType.Artwork)) {
-      const artwork = this.parseArtwork(offset);
-      if (artwork?.id !== undefined) {
-        db.artworks.set(artwork.id, artwork as Artwork);
+    try {
+      for (const { offset } of this.iterateTableRows(PageType.Artwork)) {
+        try {
+          const artwork = this.parseArtwork(offset);
+          if (artwork?.id !== undefined) {
+            db.artworks.set(artwork.id, artwork as Artwork);
+          }
+        } catch { /* skip bad row */ }
       }
+    } catch (e) {
+      console.warn('[PDB Parser] Error parsing artwork:', e);
     }
 
     // Parse tracks
-    for (const { offset, pageOffset } of this.iterateTableRows(PageType.Tracks)) {
-      const track = this.parseTrack(offset, pageOffset);
-      if (track?.id !== undefined) {
-        // Resolve references
-        const fullTrack: Track = {
-          ...track as Track,
-          artist: db.artists.get(track.artistId || 0)?.name || '',
-          album: db.albums.get(track.albumId || 0)?.name || '',
-          genre: db.genres.get(track.genreId || 0)?.name || '',
-          key: db.keys.get(track.keyId || 0)?.name || '',
-        };
-        db.tracks.set(track.id, fullTrack);
+    try {
+      for (const { offset, pageOffset } of this.iterateTableRows(PageType.Tracks)) {
+        try {
+          const track = this.parseTrack(offset, pageOffset);
+          if (track?.id !== undefined) {
+            // Resolve references
+            const fullTrack: Track = {
+              ...track as Track,
+              artist: db.artists.get(track.artistId || 0)?.name || '',
+              album: db.albums.get(track.albumId || 0)?.name || '',
+              genre: db.genres.get(track.genreId || 0)?.name || '',
+              key: db.keys.get(track.keyId || 0)?.name || '',
+            };
+            db.tracks.set(track.id, fullTrack);
+          }
+        } catch { /* skip bad row */ }
       }
+    } catch (e) {
+      console.warn('[PDB Parser] Error parsing tracks:', e);
     }
 
     // Parse playlist tree
-    for (const { offset } of this.iterateTableRows(PageType.PlaylistTree)) {
-      const node = this.parsePlaylistTreeNode(offset);
-      if (node?.id !== undefined) {
-        db.playlistTree.set(node.id, node as PlaylistTreeNode);
+    try {
+      for (const { offset } of this.iterateTableRows(PageType.PlaylistTree)) {
+        try {
+          const node = this.parsePlaylistTreeNode(offset);
+          if (node?.id !== undefined) {
+            db.playlistTree.set(node.id, node as PlaylistTreeNode);
+          }
+        } catch { /* skip bad row */ }
       }
+    } catch (e) {
+      console.warn('[PDB Parser] Error parsing playlist tree:', e);
     }
 
     // Parse playlist entries
-    for (const { offset } of this.iterateTableRows(PageType.PlaylistEntries)) {
-      const entry = this.parsePlaylistEntry(offset);
-      if (entry?.trackId !== undefined && entry?.playlistId !== undefined) {
-        db.playlistEntries.push(entry as PlaylistEntry);
+    try {
+      for (const { offset } of this.iterateTableRows(PageType.PlaylistEntries)) {
+        try {
+          const entry = this.parsePlaylistEntry(offset);
+          if (entry?.trackId !== undefined && entry?.playlistId !== undefined) {
+            db.playlistEntries.push(entry as PlaylistEntry);
+          }
+        } catch { /* skip bad row */ }
       }
+    } catch (e) {
+      console.warn('[PDB Parser] Error parsing playlist entries:', e);
     }
 
     return db;
@@ -553,6 +647,13 @@ export class PDBParser {
 
 export async function parsePDBFile(file: File): Promise<RekordboxDatabase> {
   const buffer = await file.arrayBuffer();
+
+  console.log(`[PDB Parser] File size: ${buffer.byteLength} bytes`);
+
   const parser = new PDBParser(buffer);
-  return parser.parse();
+  const db = parser.parse();
+
+  console.log(`[PDB Parser] Parsed: ${db.tracks.size} tracks, ${db.artists.size} artists, ${db.playlistTree.size} playlists`);
+
+  return db;
 }
