@@ -26,10 +26,17 @@ export function TrackList({
   selectedPlaylistId,
   onPlayTrack,
   currentTrackId,
+  isEditMode = false,
+  onRemoveTrack,
+  onMoveTrackUp,
+  onMoveTrackDown,
+  onAddToPlaylist,
+  availablePlaylists = [],
 }: TrackListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('title');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [addToPlaylistTrackId, setAddToPlaylistTrackId] = useState<number | null>(null);
 
   // Get playlist name
   const playlistName = useMemo(() => {
@@ -163,13 +170,16 @@ export function TrackList({
       </div>
 
       {/* Table Header */}
-      <div className="grid grid-cols-[1fr_1fr_80px_80px_70px_120px] gap-4 px-4 py-2 border-b border-zinc-800 text-sm text-zinc-400 font-medium">
+      <div className={`grid gap-4 px-4 py-2 border-b border-zinc-800 text-sm text-zinc-400 font-medium ${
+        isEditMode ? 'grid-cols-[1fr_1fr_80px_80px_70px_120px_100px]' : 'grid-cols-[1fr_1fr_80px_80px_70px_120px]'
+      }`}>
         <SortHeader label="Title" sortKeyName="title" />
         <SortHeader label="Artist" sortKeyName="artist" />
         <SortHeader label="BPM" sortKeyName="bpm" />
         <SortHeader label="Key" sortKeyName="key" />
         <SortHeader label="Time" sortKeyName="duration" />
         <SortHeader label="Genre" sortKeyName="genre" />
+        {isEditMode && <span>Actions</span>}
       </div>
 
       {/* Track List */}
@@ -181,14 +191,18 @@ export function TrackList({
         ) : (
           displayTracks.map((track, index) => {
             const isPlaying = currentTrackId === track.id;
+            const isFirst = index === 0;
+            const isLast = index === displayTracks.length - 1;
+            const showAddDropdown = addToPlaylistTrackId === track.id;
+
             return (
               <div
                 key={`${track.id}-${index}`}
                 onClick={() => onPlayTrack?.(track)}
                 onDoubleClick={() => onPlayTrack?.(track)}
-                className={`grid grid-cols-[1fr_1fr_80px_80px_70px_120px] gap-4 px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-900/50 transition-colors text-sm cursor-pointer ${
-                  isPlaying ? 'bg-purple-900/30' : ''
-                }`}
+                className={`grid gap-4 px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-900/50 transition-colors text-sm cursor-pointer ${
+                  isEditMode ? 'grid-cols-[1fr_1fr_80px_80px_70px_120px_100px]' : 'grid-cols-[1fr_1fr_80px_80px_70px_120px]'
+                } ${isPlaying ? 'bg-purple-900/30' : ''}`}
               >
                 <div className="truncate flex items-center gap-2">
                   {isPlaying && (
@@ -203,6 +217,71 @@ export function TrackList({
                 <div className="text-zinc-400">{track.key || '-'}</div>
                 <div className="text-zinc-400">{track.duration ? formatDuration(track.duration) : '-'}</div>
                 <div className="truncate text-zinc-500">{track.genre || '-'}</div>
+
+                {/* Edit Controls */}
+                {isEditMode && (
+                  <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                    {selectedPlaylistId !== null ? (
+                      // Playlist view: remove, move up/down
+                      <>
+                        <button
+                          onClick={() => onMoveTrackUp?.(track.id)}
+                          disabled={isFirst}
+                          className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="Move up"
+                        >
+                          <ChevronUpIcon />
+                        </button>
+                        <button
+                          onClick={() => onMoveTrackDown?.(track.id)}
+                          disabled={isLast}
+                          className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="Move down"
+                        >
+                          <ChevronDownIcon />
+                        </button>
+                        <button
+                          onClick={() => onRemoveTrack?.(track.id)}
+                          className="p-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded"
+                          title="Remove from playlist"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </>
+                    ) : (
+                      // All tracks view: add to playlist
+                      <div className="relative">
+                        <button
+                          onClick={() => setAddToPlaylistTrackId(showAddDropdown ? null : track.id)}
+                          className="p-1 text-zinc-400 hover:text-purple-400 hover:bg-purple-900/30 rounded flex items-center gap-1"
+                          title="Add to playlist"
+                        >
+                          <PlusIcon />
+                        </button>
+                        {showAddDropdown && (
+                          <div className="absolute right-0 top-full mt-1 z-50 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 min-w-[160px]">
+                            {availablePlaylists.length === 0 ? (
+                              <div className="px-3 py-2 text-zinc-500 text-xs">No playlists</div>
+                            ) : (
+                              availablePlaylists.map(playlist => (
+                                <button
+                                  key={playlist.id}
+                                  onClick={() => {
+                                    onAddToPlaylist?.(track.id, playlist.id);
+                                    setAddToPlaylistTrackId(null);
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                                >
+                                  {playlist.name}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })
@@ -216,6 +295,38 @@ function PlayingIcon() {
   return (
     <svg className="w-4 h-4 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
       <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" />
+    </svg>
+  );
+}
+
+function ChevronUpIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
     </svg>
   );
 }
