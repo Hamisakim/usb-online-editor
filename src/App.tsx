@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useFileSystem } from './hooks/useFileSystem';
+import { usePlaylistEditor } from './hooks/usePlaylistEditor';
 import { LandingScreen } from './components/LandingScreen';
 import { PlaylistSidebar } from './components/PlaylistSidebar';
 import { TrackList } from './components/TrackList';
@@ -17,10 +18,13 @@ function App() {
     loadAudioFile,
   } = useFileSystem();
 
+  const playlistEditor = usePlaylistEditor(database);
+
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(null);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(0);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   // Get the current list of tracks based on selection
   const currentTrackList = useMemo(() => {
@@ -30,14 +34,9 @@ function App() {
       return Array.from(database.tracks.values());
     }
 
-    const entries = database.playlistEntries
-      .filter(e => e.playlistId === selectedPlaylistId)
-      .sort((a, b) => a.entryIndex - b.entryIndex);
-
-    return entries
-      .map(e => database.tracks.get(e.trackId))
-      .filter((t): t is Track => t !== undefined);
-  }, [database, selectedPlaylistId]);
+    // Use the playlist editor's entries (which includes modifications)
+    return playlistEditor.getPlaylistTracks(selectedPlaylistId);
+  }, [database, selectedPlaylistId, playlistEditor]);
 
   const handlePlayTrack = useCallback(async (track: Track) => {
     // Clean up previous audio URL
@@ -80,6 +79,28 @@ function App() {
     }
   }, [currentTrackIndex, currentTrackList, handlePlayTrack]);
 
+  const handleRemoveTrack = useCallback((trackId: number) => {
+    if (selectedPlaylistId !== null) {
+      playlistEditor.removeTrackFromPlaylist(selectedPlaylistId, trackId);
+    }
+  }, [selectedPlaylistId, playlistEditor]);
+
+  const handleMoveTrackUp = useCallback((trackId: number) => {
+    if (selectedPlaylistId !== null) {
+      playlistEditor.moveTrackUp(selectedPlaylistId, trackId);
+    }
+  }, [selectedPlaylistId, playlistEditor]);
+
+  const handleMoveTrackDown = useCallback((trackId: number) => {
+    if (selectedPlaylistId !== null) {
+      playlistEditor.moveTrackDown(selectedPlaylistId, trackId);
+    }
+  }, [selectedPlaylistId, playlistEditor]);
+
+  const handleAddTrackToPlaylist = useCallback((trackId: number, playlistId: number) => {
+    return playlistEditor.addTrackToPlaylist(playlistId, trackId);
+  }, [playlistEditor]);
+
   // Show landing screen if no database loaded
   if (!database) {
     return (
@@ -99,8 +120,37 @@ function App() {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold text-white">USB Playlist Editor</h1>
           <span className="text-zinc-500 text-sm">Rekordbox</span>
+          {playlistEditor.hasUnsavedChanges && (
+            <span className="bg-yellow-600 text-yellow-100 text-xs px-2 py-0.5 rounded">Unsaved changes</span>
+          )}
         </div>
         <div className="flex items-center gap-3">
+          {playlistEditor.hasUnsavedChanges && (
+            <>
+              <button
+                onClick={playlistEditor.discardChanges}
+                className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition-colors"
+              >
+                Discard Changes
+              </button>
+              <button
+                onClick={() => alert('Save functionality coming soon!')}
+                className="px-3 py-1.5 text-sm bg-purple-600 text-white hover:bg-purple-500 rounded transition-colors"
+              >
+                Save to USB
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => setIsEditMode(!isEditMode)}
+            className={`px-3 py-1.5 text-sm rounded transition-colors ${
+              isEditMode
+                ? 'bg-purple-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+            }`}
+          >
+            {isEditMode ? 'Done Editing' : 'Edit Mode'}
+          </button>
           <button
             onClick={clearDatabase}
             className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition-colors"
@@ -114,7 +164,7 @@ function App() {
       <div className="flex-1 flex overflow-hidden">
         <PlaylistSidebar
           playlistTree={database.playlistTree}
-          playlistEntries={database.playlistEntries}
+          playlistEntries={playlistEditor.allPlaylistEntries}
           tracks={database.tracks}
           selectedPlaylistId={selectedPlaylistId}
           onSelectPlaylist={setSelectedPlaylistId}
@@ -122,11 +172,17 @@ function App() {
         />
         <TrackList
           tracks={database.tracks}
-          playlistEntries={database.playlistEntries}
+          playlistEntries={playlistEditor.allPlaylistEntries}
           playlistTree={database.playlistTree}
           selectedPlaylistId={selectedPlaylistId}
           onPlayTrack={handlePlayTrack}
           currentTrackId={currentTrack?.id ?? null}
+          isEditMode={isEditMode}
+          onRemoveTrack={handleRemoveTrack}
+          onMoveTrackUp={handleMoveTrackUp}
+          onMoveTrackDown={handleMoveTrackDown}
+          onAddToPlaylist={handleAddTrackToPlaylist}
+          availablePlaylists={Array.from(database.playlistTree.values()).filter(p => !p.isFolder)}
         />
       </div>
 

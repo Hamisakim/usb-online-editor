@@ -8,6 +8,12 @@ interface TrackListProps {
   selectedPlaylistId: number | null;
   onPlayTrack?: (track: Track) => void;
   currentTrackId?: number | null;
+  isEditMode?: boolean;
+  onRemoveTrack?: (trackId: number) => void;
+  onMoveTrackUp?: (trackId: number) => void;
+  onMoveTrackDown?: (trackId: number) => void;
+  onAddToPlaylist?: (trackId: number, playlistId: number) => boolean;
+  availablePlaylists?: PlaylistTreeNode[];
 }
 
 type SortKey = 'title' | 'artist' | 'bpm' | 'key' | 'duration' | 'genre';
