@@ -8,6 +8,8 @@ interface AudioPlayerProps {
   onPrevious?: () => void;
 }
 
+type WaveformMode = 'waveform' | 'spectrum';
+
 export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -20,7 +22,50 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
-  const [waveformData, setWaveformData] = useState<number[]>([]);
+  const [waveformMode, setWaveformMode] = useState<WaveformMode>('waveform');
+  const [fullWaveform, setFullWaveform] = useState<number[]>([]);
+  const [isLoadingWaveform, setIsLoadingWaveform] = useState(false);
+  const [spectrumData, setSpectrumData] = useState<number[]>([]);
+
+  // Generate full waveform from audio file
+  const generateFullWaveform = useCallback(async (url: string) => {
+    setIsLoadingWaveform(true);
+    try {
+      const response = await fetch(url);
+      const arrayBuffer = await response.arrayBuffer();
+
+      const offlineContext = new (window.OfflineAudioContext || (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext)(1, 2, 44100);
+      const audioBuffer = await offlineContext.decodeAudioData(arrayBuffer);
+
+      const rawData = audioBuffer.getChannelData(0);
+      const samples = 200; // Number of bars in waveform
+      const blockSize = Math.floor(rawData.length / samples);
+      const waveformData: number[] = [];
+
+      for (let i = 0; i < samples; i++) {
+        const start = blockSize * i;
+        let sum = 0;
+        for (let j = 0; j < blockSize; j++) {
+          sum += Math.abs(rawData[start + j] || 0);
+        }
+        // Normalize and apply some compression for better visualization
+        const avg = sum / blockSize;
+        const normalized = Math.pow(avg, 0.7); // Compression for better dynamic range
+        waveformData.push(normalized);
+      }
+
+      // Normalize to 0-1 range
+      const max = Math.max(...waveformData, 0.01);
+      const normalized = waveformData.map(v => v / max);
+
+      setFullWaveform(normalized);
+    } catch (err) {
+      console.error('Failed to generate waveform:', err);
+      setFullWaveform([]);
+    } finally {
+      setIsLoadingWaveform(false);
+    }
+  }, []);
 
   // Initialize audio context and analyzer
   const initAudioContext = useCallback(() => {
@@ -40,119 +85,37 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
     sourceRef.current = source;
   }, []);
 
-  // Draw waveform visualization
-  const drawWaveform = useCallback(() => {
+  // Draw full waveform
+  const drawFullWaveform = useCallback(() => {
     const canvas = canvasRef.current;
-    const analyser = analyserRef.current;
-    if (!canvas || !analyser) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    analyser.getByteFrequencyData(dataArray);
-
-    // Store waveform data for static display
-    const normalizedData = Array.from(dataArray).map(v => v / 255);
-    setWaveformData(normalizedData);
-
     const width = canvas.width;
     const height = canvas.height;
-    const barWidth = width / bufferLength;
+    const progress = duration > 0 ? currentTime / duration : 0;
+    const progressWidth = width * progress;
 
     ctx.fillStyle = '#18181b';
     ctx.fillRect(0, 0, width, height);
 
-    // Draw progress background
-    const progress = duration > 0 ? currentTime / duration : 0;
-    const progressWidth = width * progress;
-
-    // Draw bars
-    for (let i = 0; i < bufferLength; i++) {
-      const barHeight = (dataArray[i] / 255) * height * 0.9;
-      const x = i * barWidth;
-      const y = height - barHeight;
-
-      // Played portion in purple
-      if (x < progressWidth) {
-        const gradient = ctx.createLinearGradient(0, y, 0, height);
-        gradient.addColorStop(0, '#a855f7');
-        gradient.addColorStop(1, '#7c3aed');
-        ctx.fillStyle = gradient;
-      } else {
+    if (fullWaveform.length === 0) {
+      // Draw loading placeholder
+      if (isLoadingWaveform) {
         ctx.fillStyle = '#3f3f46';
-      }
-
-      ctx.fillRect(x, y, barWidth - 1, barHeight);
-    }
-
-    // Draw playhead line
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(progressWidth - 1, 0, 2, height);
-
-    if (isPlaying) {
-      animationRef.current = requestAnimationFrame(drawWaveform);
-    }
-  }, [currentTime, duration, isPlaying]);
-
-  // Start/stop animation based on playing state
-  useEffect(() => {
-    if (isPlaying && analyserRef.current) {
-      drawWaveform();
-    } else if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-    }
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, [isPlaying, drawWaveform]);
-
-  // Draw static waveform when paused
-  useEffect(() => {
-    if (!isPlaying && canvasRef.current) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const width = canvas.width;
-      const height = canvas.height;
-      const progress = duration > 0 ? currentTime / duration : 0;
-      const progressWidth = width * progress;
-
-      ctx.fillStyle = '#18181b';
-      ctx.fillRect(0, 0, width, height);
-
-      // Draw static bars from stored data
-      if (waveformData.length > 0) {
-        const barWidth = width / waveformData.length;
-        for (let i = 0; i < waveformData.length; i++) {
-          const barHeight = waveformData[i] * height * 0.9;
-          const x = i * barWidth;
-          const y = height - barHeight;
-
-          if (x < progressWidth) {
-            const gradient = ctx.createLinearGradient(0, y, 0, height);
-            gradient.addColorStop(0, '#a855f7');
-            gradient.addColorStop(1, '#7c3aed');
-            ctx.fillStyle = gradient;
-          } else {
-            ctx.fillStyle = '#3f3f46';
-          }
-
-          ctx.fillRect(x, y, barWidth - 1, barHeight);
-        }
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Loading waveform...', width / 2, height / 2 + 4);
       } else {
         // Draw placeholder bars
-        const barCount = 64;
+        const barCount = 100;
         const barWidth = width / barCount;
         for (let i = 0; i < barCount; i++) {
-          const barHeight = (Math.sin(i * 0.3) * 0.3 + 0.4) * height;
+          const barHeight = (Math.sin(i * 0.2) * 0.2 + 0.3) * height;
           const x = i * barWidth;
-          const y = height - barHeight;
+          const y = (height - barHeight) / 2;
 
           if (x < progressWidth) {
             ctx.fillStyle = '#a855f7';
@@ -162,12 +125,135 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
           ctx.fillRect(x, y, barWidth - 1, barHeight);
         }
       }
+    } else {
+      // Draw actual waveform - mirrored style
+      const barWidth = width / fullWaveform.length;
+      for (let i = 0; i < fullWaveform.length; i++) {
+        const barHeight = fullWaveform[i] * height * 0.85;
+        const x = i * barWidth;
+        const y = (height - barHeight) / 2;
 
-      // Draw playhead
+        if (x < progressWidth) {
+          // Played portion - purple gradient
+          const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
+          gradient.addColorStop(0, '#c084fc');
+          gradient.addColorStop(0.5, '#a855f7');
+          gradient.addColorStop(1, '#c084fc');
+          ctx.fillStyle = gradient;
+        } else {
+          // Unplayed portion - gray
+          ctx.fillStyle = '#52525b';
+        }
+        ctx.fillRect(x, y, Math.max(barWidth - 1, 1), barHeight);
+      }
+    }
+
+    // Draw playhead
+    if (duration > 0) {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(progressWidth - 1, 0, 2, height);
     }
-  }, [isPlaying, currentTime, duration, waveformData]);
+  }, [fullWaveform, currentTime, duration, isLoadingWaveform]);
+
+  // Draw spectrum visualization
+  const drawSpectrum = useCallback(() => {
+    const canvas = canvasRef.current;
+    const analyser = analyserRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const progress = duration > 0 ? currentTime / duration : 0;
+    const progressWidth = width * progress;
+
+    ctx.fillStyle = '#18181b';
+    ctx.fillRect(0, 0, width, height);
+
+    if (analyser && isPlaying) {
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      analyser.getByteFrequencyData(dataArray);
+
+      // Store for when paused
+      setSpectrumData(Array.from(dataArray).map(v => v / 255));
+
+      const barWidth = width / bufferLength;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const barHeight = (dataArray[i] / 255) * height * 0.9;
+        const x = i * barWidth;
+        const y = height - barHeight;
+
+        if (x < progressWidth) {
+          const gradient = ctx.createLinearGradient(0, y, 0, height);
+          gradient.addColorStop(0, '#a855f7');
+          gradient.addColorStop(1, '#7c3aed');
+          ctx.fillStyle = gradient;
+        } else {
+          ctx.fillStyle = '#3f3f46';
+        }
+
+        ctx.fillRect(x, y, barWidth - 1, barHeight);
+      }
+
+      animationRef.current = requestAnimationFrame(drawSpectrum);
+    } else if (spectrumData.length > 0) {
+      // Draw static spectrum when paused
+      const barWidth = width / spectrumData.length;
+      for (let i = 0; i < spectrumData.length; i++) {
+        const barHeight = spectrumData[i] * height * 0.9;
+        const x = i * barWidth;
+        const y = height - barHeight;
+
+        if (x < progressWidth) {
+          ctx.fillStyle = '#a855f7';
+        } else {
+          ctx.fillStyle = '#3f3f46';
+        }
+        ctx.fillRect(x, y, barWidth - 1, barHeight);
+      }
+    }
+
+    // Draw playhead
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(progressWidth - 1, 0, 2, height);
+  }, [currentTime, duration, isPlaying, spectrumData]);
+
+  // Main draw function based on mode
+  const draw = useCallback(() => {
+    if (waveformMode === 'waveform') {
+      drawFullWaveform();
+    } else {
+      drawSpectrum();
+    }
+  }, [waveformMode, drawFullWaveform, drawSpectrum]);
+
+  // Animation loop for spectrum mode
+  useEffect(() => {
+    if (waveformMode === 'spectrum' && isPlaying && analyserRef.current) {
+      drawSpectrum();
+    } else if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [waveformMode, isPlaying, drawSpectrum]);
+
+  // Redraw waveform when time/mode changes
+  useEffect(() => {
+    if (waveformMode === 'waveform') {
+      drawFullWaveform();
+    } else if (!isPlaying) {
+      drawSpectrum();
+    }
+  }, [waveformMode, currentTime, duration, drawFullWaveform, drawSpectrum, isPlaying]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -178,6 +264,12 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
   useEffect(() => {
     // When audio URL changes, reset and play
     if (audioUrl && audioRef.current) {
+      // Generate full waveform
+      generateFullWaveform(audioUrl);
+
+      // Reset spectrum data
+      setSpectrumData([]);
+
       // Initialize audio context on first interaction
       if (!audioContextRef.current) {
         initAudioContext();
@@ -192,7 +284,7 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
         setIsPlaying(true);
       }).catch(console.error);
     }
-  }, [audioUrl, initAudioContext]);
+  }, [audioUrl, initAudioContext, generateFullWaveform]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -209,7 +301,6 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
   const togglePlay = () => {
     if (!audioRef.current || !audioUrl) return;
 
-    // Initialize audio context if not done
     if (!audioContextRef.current) {
       initAudioContext();
     }
@@ -237,8 +328,6 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
   const handleLoadedMetadata = () => {
     if (audioRef.current) {
       setDuration(audioRef.current.duration);
-      // Reset waveform data for new track
-      setWaveformData([]);
     }
   };
 
@@ -346,6 +435,32 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
           </button>
         </div>
 
+        {/* Waveform mode toggle */}
+        <div className="flex items-center bg-zinc-800 rounded-lg p-0.5">
+          <button
+            onClick={() => setWaveformMode('waveform')}
+            className={`px-2 py-1 text-xs rounded transition-colors ${
+              waveformMode === 'waveform'
+                ? 'bg-purple-600 text-white'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+            title="Full track waveform"
+          >
+            <WaveformIcon />
+          </button>
+          <button
+            onClick={() => setWaveformMode('spectrum')}
+            className={`px-2 py-1 text-xs rounded transition-colors ${
+              waveformMode === 'spectrum'
+                ? 'bg-purple-600 text-white'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+            title="Real-time spectrum"
+          >
+            <SpectrumIcon />
+          </button>
+        </div>
+
         {/* Spacer */}
         <div className="flex-1" />
 
@@ -422,6 +537,22 @@ function VolumeIcon({ muted }: { muted?: boolean }) {
     <svg className="w-4 h-4 text-zinc-400" fill="currentColor" viewBox="0 0 20 20">
       <path d="M10 3.75a.75.75 0 00-1.264-.546L4.703 7H3.167a.75.75 0 00-.7.48A6.985 6.985 0 002 10c0 .887.165 1.737.468 2.52.111.29.39.48.7.48h1.535l4.033 3.796A.75.75 0 0010 16.25V3.75zM15.95 5.05a.75.75 0 00-1.06 1.061 5.5 5.5 0 010 7.778.75.75 0 001.06 1.06 7 7 0 000-9.899z" />
       <path d="M13.829 7.172a.75.75 0 00-1.061 1.06 2.5 2.5 0 010 3.536.75.75 0 001.06 1.06 4 4 0 000-5.656z" />
+    </svg>
+  );
+}
+
+function WaveformIcon() {
+  return (
+    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M3 12h2v4H3v-4zm4-6h2v16H7V6zm4-2h2v20h-2V4zm4 4h2v12h-2V8zm4 2h2v8h-2v-8z" />
+    </svg>
+  );
+}
+
+function SpectrumIcon() {
+  return (
+    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M3 17h2v4H3v-4zm4-5h2v9H7v-9zm4-4h2v13h-2V8zm4 2h2v11h-2V10zm4-6h2v17h-2V4z" />
     </svg>
   );
 }
