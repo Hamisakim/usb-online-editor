@@ -5,9 +5,10 @@
  * for Rekordbox database files.
  */
 
-import { useState, useCallback } from 'react';
-import type { RekordboxDatabase } from '../types/rekordbox';
+import { useState, useCallback, useRef } from 'react';
+import type { RekordboxDatabase, PlaylistEntry } from '../types/rekordbox';
 import { parsePDBFile } from '../lib/pdb-parser';
+import { applyPlaylistModifications, createBackupFilename } from '../lib/pdb-writer';
 
 interface FileSystemState {
   isSupported: boolean;
@@ -15,6 +16,7 @@ interface FileSystemState {
   pioneerHandle: FileSystemDirectoryHandle | null;
   database: RekordboxDatabase | null;
   isLoading: boolean;
+  isSaving: boolean;
   error: string | null;
 }
 
@@ -25,8 +27,14 @@ export function useFileSystem() {
     pioneerHandle: null,
     database: null,
     isLoading: false,
+    isSaving: false,
     error: null,
   });
+
+  // Store the original PDB buffer and entries for comparison/modification
+  const originalPdbBuffer = useRef<ArrayBuffer | null>(null);
+  const originalPlaylistEntries = useRef<PlaylistEntry[]>([]);
+  const rekordboxHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
 
   const selectUSBFolder = useCallback(async () => {
     if (!state.isSupported) {
@@ -79,6 +87,9 @@ export function useFileSystem() {
         return;
       }
 
+      // Store the rekordbox handle for later saving
+      rekordboxHandleRef.current = rekordboxHandle;
+
       // Find and read export.pdb
       let pdbFile: File;
       try {
@@ -93,8 +104,15 @@ export function useFileSystem() {
         return;
       }
 
+      // Store the original buffer
+      const buffer = await pdbFile.arrayBuffer();
+      originalPdbBuffer.current = buffer.slice(0); // Make a copy
+
       // Parse the database
       const database = await parsePDBFile(pdbFile);
+
+      // Store original playlist entries
+      originalPlaylistEntries.current = [...database.playlistEntries];
 
       setState({
         isSupported: true,
@@ -102,6 +120,7 @@ export function useFileSystem() {
         pioneerHandle,
         database,
         isLoading: false,
+        isSaving: false,
         error: null,
       });
     } catch (err) {
@@ -120,12 +139,17 @@ export function useFileSystem() {
   }, [state.isSupported]);
 
   const clearDatabase = useCallback(() => {
+    originalPdbBuffer.current = null;
+    originalPlaylistEntries.current = [];
+    rekordboxHandleRef.current = null;
+
     setState({
       isSupported: state.isSupported,
       directoryHandle: null,
       pioneerHandle: null,
       database: null,
       isLoading: false,
+      isSaving: false,
       error: null,
     });
   }, [state.isSupported]);
@@ -160,11 +184,73 @@ export function useFileSystem() {
     }
   }, [state.directoryHandle]);
 
+  // Save modified playlist entries back to the PDB file
+  const saveDatabase = useCallback(async (modifiedEntries: PlaylistEntry[]): Promise<boolean> => {
+    if (!rekordboxHandleRef.current || !originalPdbBuffer.current) {
+      setState(prev => ({ ...prev, error: 'No database loaded' }));
+      return false;
+    }
+
+    setState(prev => ({ ...prev, isSaving: true, error: null }));
+
+    try {
+      const rekordboxHandle = rekordboxHandleRef.current;
+
+      // Create a backup of the original file
+      const backupFilename = createBackupFilename();
+      console.log(`[Save] Creating backup: ${backupFilename}`);
+
+      try {
+        const backupHandle = await rekordboxHandle.getFileHandle(backupFilename, { create: true });
+        const backupWritable = await backupHandle.createWritable();
+        await backupWritable.write(originalPdbBuffer.current);
+        await backupWritable.close();
+        console.log('[Save] Backup created successfully');
+      } catch (backupErr) {
+        console.warn('[Save] Could not create backup:', backupErr);
+        // Continue anyway - user was warned
+      }
+
+      // Apply modifications to the buffer
+      console.log('[Save] Applying modifications...');
+      const modifiedBuffer = applyPlaylistModifications(
+        originalPdbBuffer.current,
+        originalPlaylistEntries.current,
+        modifiedEntries
+      );
+
+      // Write the modified buffer to export.pdb
+      console.log('[Save] Writing modified PDB...');
+      const pdbHandle = await rekordboxHandle.getFileHandle('export.pdb', { create: false });
+      const writable = await pdbHandle.createWritable();
+      await writable.write(modifiedBuffer);
+      await writable.close();
+
+      // Update our stored originals to reflect the new state
+      originalPdbBuffer.current = modifiedBuffer.slice(0);
+      originalPlaylistEntries.current = [...modifiedEntries];
+
+      console.log('[Save] Save completed successfully');
+
+      setState(prev => ({ ...prev, isSaving: false }));
+      return true;
+    } catch (err) {
+      console.error('[Save] Error saving:', err);
+      setState(prev => ({
+        ...prev,
+        isSaving: false,
+        error: `Error saving to USB: ${(err as Error).message}`,
+      }));
+      return false;
+    }
+  }, []);
+
   return {
     ...state,
     selectUSBFolder,
     clearDatabase,
     loadAudioFile,
+    saveDatabase,
   };
 }
 
@@ -174,5 +260,14 @@ declare global {
     showDirectoryPicker(options?: {
       mode?: 'read' | 'readwrite';
     }): Promise<FileSystemDirectoryHandle>;
+  }
+
+  interface FileSystemFileHandle {
+    createWritable(): Promise<FileSystemWritableFileStream>;
+  }
+
+  interface FileSystemWritableFileStream extends WritableStream {
+    write(data: ArrayBuffer | Uint8Array | Blob | string): Promise<void>;
+    close(): Promise<void>;
   }
 }
