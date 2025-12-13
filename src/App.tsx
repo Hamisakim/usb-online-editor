@@ -101,7 +101,7 @@ function App() {
   const handleSave = useCallback(async () => {
     const success = await saveDatabase(playlistEditor.allPlaylistEntries);
     if (success) {
-      playlistEditor.discardChanges(); // Clear the "unsaved" state since we just saved
+      playlistEditor.markAsSaved(); // Keep modifications but clear "unsaved" flag
     }
   }, [saveDatabase, playlistEditor]);
 

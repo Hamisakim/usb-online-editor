@@ -137,6 +137,14 @@ export function usePlaylistEditor(database: RekordboxDatabase | null) {
     });
   }, []);
 
+  // Mark changes as saved (keeps modifications but clears unsaved flag)
+  const markAsSaved = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      hasUnsavedChanges: false,
+    }));
+  }, []);
+
   // Get tracks for a specific playlist view (resolved to Track objects)
   const getPlaylistTracks = useCallback((playlistId: number): Track[] => {
     if (!database) return [];
@@ -158,5 +166,6 @@ export function usePlaylistEditor(database: RekordboxDatabase | null) {
     moveTrackUp,
     moveTrackDown,
     discardChanges,
+    markAsSaved,
   };
 }
