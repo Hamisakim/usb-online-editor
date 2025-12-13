@@ -17,7 +17,7 @@ interface TrackListProps {
   availablePlaylists?: PlaylistTreeNode[];
 }
 
-type SortKey = 'title' | 'artist' | 'bpm' | 'key' | 'duration' | 'genre';
+type SortKey = 'order' | 'title' | 'artist' | 'bpm' | 'key' | 'duration' | 'genre';
 type SortDir = 'asc' | 'desc';
 
 interface ColumnWidths {
@@ -58,7 +58,7 @@ export function TrackList({
   availablePlaylists = [],
 }: TrackListProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortKey, setSortKey] = useState<SortKey>('title');
+  const [sortKey, setSortKey] = useState<SortKey>('order');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [addToPlaylistTrackId, setAddToPlaylistTrackId] = useState<number | null>(null);
 
@@ -107,11 +107,14 @@ export function TrackList({
       );
     }
 
-    // Only sort when not in edit mode for playlists (preserve playlist order when editing)
-    if (selectedPlaylistId === null || !isEditMode) {
+    // Sort tracks - but preserve playlist order when sortKey is 'order' or when in edit mode
+    const shouldPreserveOrder = (sortKey === 'order' && selectedPlaylistId !== null) || isEditMode;
+
+    if (!shouldPreserveOrder) {
       trackList.sort((a, b) => {
         let cmp = 0;
         switch (sortKey) {
+          case 'order':
           case 'title':
             cmp = a.title.localeCompare(b.title);
             break;
@@ -133,6 +136,9 @@ export function TrackList({
         }
         return sortDir === 'asc' ? cmp : -cmp;
       });
+    } else if (sortDir === 'desc' && selectedPlaylistId !== null) {
+      // If sorting by order descending, reverse the list
+      trackList.reverse();
     }
 
     return trackList;
@@ -319,7 +325,17 @@ export function TrackList({
       >
         {isPlaylistView && (
           <div className="relative group flex items-center">
-            <span>#</span>
+            <button
+              onClick={() => handleSort('order')}
+              className={`flex items-center gap-1 hover:text-white transition-colors ${
+                sortKey === 'order' ? 'text-purple-400' : ''
+              }`}
+            >
+              #
+              {sortKey === 'order' && (
+                <span className="text-xs">{sortDir === 'asc' ? '▲' : '▼'}</span>
+              )}
+            </button>
             <ResizeHandle column="order" />
           </div>
         )}
