@@ -21,6 +21,7 @@ type SortKey = 'title' | 'artist' | 'bpm' | 'key' | 'duration' | 'genre';
 type SortDir = 'asc' | 'desc';
 
 interface ColumnWidths {
+  order: number;
   title: number;
   artist: number;
   bpm: number;
@@ -31,6 +32,7 @@ interface ColumnWidths {
 }
 
 const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
+  order: 50,
   title: 250,
   artist: 200,
   bpm: 70,
@@ -222,20 +224,26 @@ export function TrackList({
     };
   }, [resizingColumn]);
 
+  const isPlaylistView = selectedPlaylistId !== null;
+
   const gridTemplateColumns = useMemo(() => {
-    const cols = [
+    const cols: string[] = [];
+    if (isPlaylistView) {
+      cols.push(`${columnWidths.order}px`);
+    }
+    cols.push(
       `${columnWidths.title}px`,
       `${columnWidths.artist}px`,
       `${columnWidths.bpm}px`,
       `${columnWidths.key}px`,
       `${columnWidths.duration}px`,
       `${columnWidths.genre}px`,
-    ];
+    );
     if (isEditMode) {
       cols.push(`${columnWidths.actions}px`);
     }
     return cols.join(' ');
-  }, [columnWidths, isEditMode]);
+  }, [columnWidths, isEditMode, isPlaylistView]);
 
   const canDrag = isEditMode && selectedPlaylistId !== null && !searchQuery;
 
@@ -309,6 +317,12 @@ export function TrackList({
         className="grid gap-4 px-4 py-2 border-b border-zinc-800 text-sm text-zinc-400 font-medium select-none"
         style={{ gridTemplateColumns }}
       >
+        {isPlaylistView && (
+          <div className="relative group flex items-center">
+            <span>#</span>
+            <ResizeHandle column="order" />
+          </div>
+        )}
         <SortHeader label="Title" sortKeyName="title" column="title" />
         <SortHeader label="Artist" sortKeyName="artist" column="artist" />
         <SortHeader label="BPM" sortKeyName="bpm" column="bpm" />
@@ -354,12 +368,17 @@ export function TrackList({
                 } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
                 style={{ gridTemplateColumns }}
               >
+                {isPlaylistView && (
+                  <div className="text-zinc-500 flex items-center gap-1">
+                    {canDrag && (
+                      <span className="text-zinc-600 flex-shrink-0">
+                        <GripIcon />
+                      </span>
+                    )}
+                    <span>{index + 1}</span>
+                  </div>
+                )}
                 <div className="truncate flex items-center gap-2 min-w-0">
-                  {canDrag && (
-                    <span className="text-zinc-600 flex-shrink-0">
-                      <GripIcon />
-                    </span>
-                  )}
                   {isPlaying && (
                     <span className="text-purple-400 flex-shrink-0">
                       <PlayingIcon />
