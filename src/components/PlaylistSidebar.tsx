@@ -8,6 +8,7 @@ interface PlaylistSidebarProps {
   selectedPlaylistId: number | null;
   onSelectPlaylist: (id: number | null) => void;
   onSelectAllTracks: () => void;
+  onAddTrackToPlaylist?: (trackId: number, playlistId: number) => boolean;
   width?: number;
   onWidthChange?: (width: number) => void;
 }
@@ -31,11 +32,13 @@ export function PlaylistSidebar({
   selectedPlaylistId,
   onSelectPlaylist,
   onSelectAllTracks,
+  onAddTrackToPlaylist,
   width = DEFAULT_WIDTH,
   onWidthChange,
 }: PlaylistSidebarProps) {
   const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set());
   const [isResizing, setIsResizing] = useState(false);
+  const [dragOverPlaylistId, setDragOverPlaylistId] = useState<number | null>(null);
   const resizeStartX = useRef<number>(0);
   const resizeStartWidth = useRef<number>(0);
 
@@ -131,9 +134,34 @@ export function PlaylistSidebar({
     };
   }, [isResizing, onWidthChange]);
 
+  // Drag and drop handlers
+  const handleDragOver = useCallback((e: React.DragEvent, playlistId: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setDragOverPlaylistId(playlistId);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOverPlaylistId(null);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, playlistId: number) => {
+    e.preventDefault();
+    setDragOverPlaylistId(null);
+
+    const trackIdStr = e.dataTransfer.getData('application/x-track-id');
+    if (trackIdStr) {
+      const trackId = parseInt(trackIdStr, 10);
+      if (!isNaN(trackId)) {
+        onAddTrackToPlaylist?.(trackId, playlistId);
+      }
+    }
+  }, [onAddTrackToPlaylist]);
+
   const renderNode = (node: TreeNode, depth: number = 0) => {
     const isExpanded = expandedFolders.has(node.id);
     const isSelected = selectedPlaylistId === node.id;
+    const isDragOver = dragOverPlaylistId === node.id;
 
     return (
       <div key={node.id}>
@@ -145,9 +173,12 @@ export function PlaylistSidebar({
               onSelectPlaylist(node.id);
             }
           }}
+          onDragOver={node.isFolder ? undefined : (e) => handleDragOver(e, node.id)}
+          onDragLeave={node.isFolder ? undefined : handleDragLeave}
+          onDrop={node.isFolder ? undefined : (e) => handleDrop(e, node.id)}
           className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-zinc-800 transition-colors ${
             isSelected ? 'bg-purple-900/50 text-purple-300' : 'text-zinc-300'
-          }`}
+          } ${isDragOver ? 'bg-purple-600/50 ring-2 ring-purple-500' : ''}`}
           style={{ paddingLeft: `${12 + depth * 16}px` }}
         >
           {node.isFolder ? (

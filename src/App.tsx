@@ -185,6 +185,7 @@ function App() {
           selectedPlaylistId={selectedPlaylistId}
           onSelectPlaylist={setSelectedPlaylistId}
           onSelectAllTracks={() => setSelectedPlaylistId(null)}
+          onAddTrackToPlaylist={handleAddTrackToPlaylist}
           width={sidebarWidth}
           onWidthChange={setSidebarWidth}
         />

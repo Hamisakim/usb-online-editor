@@ -164,11 +164,16 @@ export function TrackList({
   };
 
   // Drag and drop handlers
-  const handleDragStart = useCallback((e: React.DragEvent, index: number) => {
-    if (!isEditMode || selectedPlaylistId === null) return;
-    setDraggedIndex(index);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', index.toString());
+  const handleDragStart = useCallback((e: React.DragEvent, index: number, trackId: number) => {
+    // Always set track ID for dragging to playlists in sidebar
+    e.dataTransfer.setData('application/x-track-id', trackId.toString());
+    e.dataTransfer.effectAllowed = 'copyMove';
+
+    // Only set up reordering if in edit mode within a playlist
+    if (isEditMode && selectedPlaylistId !== null) {
+      setDraggedIndex(index);
+      e.dataTransfer.setData('text/plain', index.toString());
+    }
   }, [isEditMode, selectedPlaylistId]);
 
   const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
@@ -251,7 +256,7 @@ export function TrackList({
     return cols.join(' ');
   }, [columnWidths, isEditMode, isPlaylistView]);
 
-  const canDrag = isEditMode && selectedPlaylistId !== null && !searchQuery;
+  const canReorder = isEditMode && selectedPlaylistId !== null && !searchQuery;
 
   const ResizeHandle = ({ column }: { column: keyof ColumnWidths }) => (
     <div
@@ -369,11 +374,11 @@ export function TrackList({
             return (
               <div
                 key={`${track.id}-${index}`}
-                draggable={canDrag}
-                onDragStart={e => handleDragStart(e, index)}
-                onDragOver={e => handleDragOver(e, index)}
-                onDragLeave={handleDragLeave}
-                onDrop={e => handleDrop(e, index)}
+                draggable={true}
+                onDragStart={e => handleDragStart(e, index, track.id)}
+                onDragOver={canReorder ? (e => handleDragOver(e, index)) : undefined}
+                onDragLeave={canReorder ? handleDragLeave : undefined}
+                onDrop={canReorder ? (e => handleDrop(e, index)) : undefined}
                 onDragEnd={handleDragEnd}
                 onClick={() => onPlayTrack?.(track)}
                 onDoubleClick={() => onPlayTrack?.(track)}
@@ -381,12 +386,12 @@ export function TrackList({
                   isPlaying ? 'bg-purple-900/30' : ''
                 } ${isDragging ? 'opacity-50 bg-zinc-800' : ''} ${
                   isDragOver ? 'border-t-2 border-t-purple-500' : ''
-                } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                } ${canReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
                 style={{ gridTemplateColumns }}
               >
                 {isPlaylistView && (
                   <div className="text-zinc-500 flex items-center gap-1">
-                    {canDrag && (
+                    {canReorder && (
                       <span className="text-zinc-600 flex-shrink-0">
                         <GripIcon />
                       </span>
