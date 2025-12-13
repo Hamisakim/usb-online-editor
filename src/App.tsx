@@ -25,6 +25,7 @@ function App() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(0);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(256);
 
   // Get the current list of tracks based on selection
   const currentTrackList = useMemo(() => {
@@ -85,15 +86,9 @@ function App() {
     }
   }, [selectedPlaylistId, playlistEditor]);
 
-  const handleMoveTrackUp = useCallback((trackId: number) => {
+  const handleReorderTrack = useCallback((fromIndex: number, toIndex: number) => {
     if (selectedPlaylistId !== null) {
-      playlistEditor.moveTrackUp(selectedPlaylistId, trackId);
-    }
-  }, [selectedPlaylistId, playlistEditor]);
-
-  const handleMoveTrackDown = useCallback((trackId: number) => {
-    if (selectedPlaylistId !== null) {
-      playlistEditor.moveTrackDown(selectedPlaylistId, trackId);
+      playlistEditor.reorderPlaylistTracks(selectedPlaylistId, fromIndex, toIndex);
     }
   }, [selectedPlaylistId, playlistEditor]);
 
@@ -169,6 +164,8 @@ function App() {
           selectedPlaylistId={selectedPlaylistId}
           onSelectPlaylist={setSelectedPlaylistId}
           onSelectAllTracks={() => setSelectedPlaylistId(null)}
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
         />
         <TrackList
           tracks={database.tracks}
@@ -179,8 +176,7 @@ function App() {
           currentTrackId={currentTrack?.id ?? null}
           isEditMode={isEditMode}
           onRemoveTrack={handleRemoveTrack}
-          onMoveTrackUp={handleMoveTrackUp}
-          onMoveTrackDown={handleMoveTrackDown}
+          onReorderTrack={handleReorderTrack}
           onAddToPlaylist={handleAddTrackToPlaylist}
           availablePlaylists={Array.from(database.playlistTree.values()).filter(p => !p.isFolder)}
         />

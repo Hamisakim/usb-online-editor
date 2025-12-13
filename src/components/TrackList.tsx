@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import type { Track, PlaylistEntry, PlaylistTreeNode } from '../types/rekordbox';
 
 interface TrackListProps {
@@ -12,12 +12,35 @@ interface TrackListProps {
   onRemoveTrack?: (trackId: number) => void;
   onMoveTrackUp?: (trackId: number) => void;
   onMoveTrackDown?: (trackId: number) => void;
+  onReorderTrack?: (fromIndex: number, toIndex: number) => void;
   onAddToPlaylist?: (trackId: number, playlistId: number) => boolean;
   availablePlaylists?: PlaylistTreeNode[];
 }
 
 type SortKey = 'title' | 'artist' | 'bpm' | 'key' | 'duration' | 'genre';
 type SortDir = 'asc' | 'desc';
+
+interface ColumnWidths {
+  title: number;
+  artist: number;
+  bpm: number;
+  key: number;
+  duration: number;
+  genre: number;
+  actions: number;
+}
+
+const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
+  title: 250,
+  artist: 200,
+  bpm: 70,
+  key: 70,
+  duration: 70,
+  genre: 120,
+  actions: 100,
+};
+
+const MIN_COLUMN_WIDTH = 50;
 
 export function TrackList({
   tracks,
@@ -28,8 +51,7 @@ export function TrackList({
   currentTrackId,
   isEditMode = false,
   onRemoveTrack,
-  onMoveTrackUp,
-  onMoveTrackDown,
+  onReorderTrack,
   onAddToPlaylist,
   availablePlaylists = [],
 }: TrackListProps) {
@@ -38,13 +60,23 @@ export function TrackList({
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [addToPlaylistTrackId, setAddToPlaylistTrackId] = useState<number | null>(null);
 
+  // Drag and drop state
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Column resize state
+  const [columnWidths, setColumnWidths] = useState<ColumnWidths>(DEFAULT_COLUMN_WIDTHS);
+  const [resizingColumn, setResizingColumn] = useState<keyof ColumnWidths | null>(null);
+  const resizeStartX = useRef<number>(0);
+  const resizeStartWidth = useRef<number>(0);
+
   // Get playlist name
   const playlistName = useMemo(() => {
     if (selectedPlaylistId === null) return 'All Tracks';
     return playlistTree.get(selectedPlaylistId)?.name || 'Playlist';
   }, [selectedPlaylistId, playlistTree]);
 
-  // Get tracks for current view
+  // Get tracks for current view - don't sort when in playlist edit mode
   const displayTracks = useMemo(() => {
     let trackList: Track[];
 
@@ -52,7 +84,7 @@ export function TrackList({
       // All tracks
       trackList = Array.from(tracks.values());
     } else {
-      // Playlist tracks
+      // Playlist tracks - maintain order from entries
       const entries = playlistEntries
         .filter(e => e.playlistId === selectedPlaylistId)
         .sort((a, b) => a.entryIndex - b.entryIndex);
@@ -73,34 +105,36 @@ export function TrackList({
       );
     }
 
-    // Sort
-    trackList.sort((a, b) => {
-      let cmp = 0;
-      switch (sortKey) {
-        case 'title':
-          cmp = a.title.localeCompare(b.title);
-          break;
-        case 'artist':
-          cmp = a.artist.localeCompare(b.artist);
-          break;
-        case 'bpm':
-          cmp = (a.tempo || 0) - (b.tempo || 0);
-          break;
-        case 'key':
-          cmp = (a.key || '').localeCompare(b.key || '');
-          break;
-        case 'duration':
-          cmp = (a.duration || 0) - (b.duration || 0);
-          break;
-        case 'genre':
-          cmp = (a.genre || '').localeCompare(b.genre || '');
-          break;
-      }
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
+    // Only sort when not in edit mode for playlists (preserve playlist order when editing)
+    if (selectedPlaylistId === null || !isEditMode) {
+      trackList.sort((a, b) => {
+        let cmp = 0;
+        switch (sortKey) {
+          case 'title':
+            cmp = a.title.localeCompare(b.title);
+            break;
+          case 'artist':
+            cmp = a.artist.localeCompare(b.artist);
+            break;
+          case 'bpm':
+            cmp = (a.tempo || 0) - (b.tempo || 0);
+            break;
+          case 'key':
+            cmp = (a.key || '').localeCompare(b.key || '');
+            break;
+          case 'duration':
+            cmp = (a.duration || 0) - (b.duration || 0);
+            break;
+          case 'genre':
+            cmp = (a.genre || '').localeCompare(b.genre || '');
+            break;
+        }
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    }
 
     return trackList;
-  }, [tracks, playlistEntries, selectedPlaylistId, searchQuery, sortKey, sortDir]);
+  }, [tracks, playlistEntries, selectedPlaylistId, searchQuery, sortKey, sortDir, isEditMode]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -121,22 +155,116 @@ export function TrackList({
     return (tempo / 100).toFixed(1);
   };
 
-  const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
-    <button
-      onClick={() => handleSort(sortKeyName)}
-      className={`flex items-center gap-1 hover:text-white transition-colors ${
-        sortKey === sortKeyName ? 'text-purple-400' : ''
-      }`}
-    >
-      {label}
-      {sortKey === sortKeyName && (
-        <span className="text-xs">{sortDir === 'asc' ? '▲' : '▼'}</span>
-      )}
-    </button>
+  // Drag and drop handlers
+  const handleDragStart = useCallback((e: React.DragEvent, index: number) => {
+    if (!isEditMode || selectedPlaylistId === null) return;
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
+  }, [isEditMode, selectedPlaylistId]);
+
+  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === index) return;
+    setDragOverIndex(index);
+  }, [draggedIndex]);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOverIndex(null);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, toIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === toIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    onReorderTrack?.(draggedIndex, toIndex);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  }, [draggedIndex, onReorderTrack]);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  }, []);
+
+  // Column resize handlers
+  const handleResizeStart = useCallback((e: React.MouseEvent, column: keyof ColumnWidths) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizingColumn(column);
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = columnWidths[column];
+  }, [columnWidths]);
+
+  useEffect(() => {
+    if (!resizingColumn) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const delta = e.clientX - resizeStartX.current;
+      const newWidth = Math.max(MIN_COLUMN_WIDTH, resizeStartWidth.current + delta);
+      setColumnWidths(prev => ({ ...prev, [resizingColumn]: newWidth }));
+    };
+
+    const handleMouseUp = () => {
+      setResizingColumn(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [resizingColumn]);
+
+  const gridTemplateColumns = useMemo(() => {
+    const cols = [
+      `${columnWidths.title}px`,
+      `${columnWidths.artist}px`,
+      `${columnWidths.bpm}px`,
+      `${columnWidths.key}px`,
+      `${columnWidths.duration}px`,
+      `${columnWidths.genre}px`,
+    ];
+    if (isEditMode) {
+      cols.push(`${columnWidths.actions}px`);
+    }
+    return cols.join(' ');
+  }, [columnWidths, isEditMode]);
+
+  const canDrag = isEditMode && selectedPlaylistId !== null && !searchQuery;
+
+  const ResizeHandle = ({ column }: { column: keyof ColumnWidths }) => (
+    <div
+      className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-purple-500 group-hover:bg-zinc-600"
+      onMouseDown={e => handleResizeStart(e, column)}
+    />
+  );
+
+  const SortHeader = ({ label, sortKeyName, column }: { label: string; sortKeyName: SortKey; column: keyof ColumnWidths }) => (
+    <div className="relative group flex items-center">
+      <button
+        onClick={() => handleSort(sortKeyName)}
+        className={`flex items-center gap-1 hover:text-white transition-colors ${
+          sortKey === sortKeyName ? 'text-purple-400' : ''
+        }`}
+      >
+        {label}
+        {sortKey === sortKeyName && (
+          <span className="text-xs">{sortDir === 'asc' ? '▲' : '▼'}</span>
+        )}
+      </button>
+      <ResizeHandle column={column} />
+    </div>
   );
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-zinc-950">
+    <div className="flex-1 flex flex-col h-full bg-zinc-950 min-w-0">
       {/* Header */}
       <div className="p-4 border-b border-zinc-800 space-y-4">
         <div className="flex items-center justify-between">
@@ -167,19 +295,32 @@ export function TrackList({
             />
           </svg>
         </div>
+
+        {/* Edit mode hint */}
+        {isEditMode && selectedPlaylistId !== null && (
+          <div className="text-xs text-zinc-500">
+            Drag tracks to reorder them in the playlist
+          </div>
+        )}
       </div>
 
       {/* Table Header */}
-      <div className={`grid gap-4 px-4 py-2 border-b border-zinc-800 text-sm text-zinc-400 font-medium ${
-        isEditMode ? 'grid-cols-[1fr_1fr_80px_80px_70px_120px_100px]' : 'grid-cols-[1fr_1fr_80px_80px_70px_120px]'
-      }`}>
-        <SortHeader label="Title" sortKeyName="title" />
-        <SortHeader label="Artist" sortKeyName="artist" />
-        <SortHeader label="BPM" sortKeyName="bpm" />
-        <SortHeader label="Key" sortKeyName="key" />
-        <SortHeader label="Time" sortKeyName="duration" />
-        <SortHeader label="Genre" sortKeyName="genre" />
-        {isEditMode && <span>Actions</span>}
+      <div
+        className="grid gap-4 px-4 py-2 border-b border-zinc-800 text-sm text-zinc-400 font-medium select-none"
+        style={{ gridTemplateColumns }}
+      >
+        <SortHeader label="Title" sortKeyName="title" column="title" />
+        <SortHeader label="Artist" sortKeyName="artist" column="artist" />
+        <SortHeader label="BPM" sortKeyName="bpm" column="bpm" />
+        <SortHeader label="Key" sortKeyName="key" column="key" />
+        <SortHeader label="Time" sortKeyName="duration" column="duration" />
+        <SortHeader label="Genre" sortKeyName="genre" column="genre" />
+        {isEditMode && (
+          <div className="relative group flex items-center">
+            <span>Actions</span>
+            <ResizeHandle column="actions" />
+          </div>
+        )}
       </div>
 
       {/* Track List */}
@@ -191,26 +332,40 @@ export function TrackList({
         ) : (
           displayTracks.map((track, index) => {
             const isPlaying = currentTrackId === track.id;
-            const isFirst = index === 0;
-            const isLast = index === displayTracks.length - 1;
+            const isDragging = draggedIndex === index;
+            const isDragOver = dragOverIndex === index;
             const showAddDropdown = addToPlaylistTrackId === track.id;
 
             return (
               <div
                 key={`${track.id}-${index}`}
+                draggable={canDrag}
+                onDragStart={e => handleDragStart(e, index)}
+                onDragOver={e => handleDragOver(e, index)}
+                onDragLeave={handleDragLeave}
+                onDrop={e => handleDrop(e, index)}
+                onDragEnd={handleDragEnd}
                 onClick={() => onPlayTrack?.(track)}
                 onDoubleClick={() => onPlayTrack?.(track)}
                 className={`grid gap-4 px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-900/50 transition-colors text-sm cursor-pointer ${
-                  isEditMode ? 'grid-cols-[1fr_1fr_80px_80px_70px_120px_100px]' : 'grid-cols-[1fr_1fr_80px_80px_70px_120px]'
-                } ${isPlaying ? 'bg-purple-900/30' : ''}`}
+                  isPlaying ? 'bg-purple-900/30' : ''
+                } ${isDragging ? 'opacity-50 bg-zinc-800' : ''} ${
+                  isDragOver ? 'border-t-2 border-t-purple-500' : ''
+                } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                style={{ gridTemplateColumns }}
               >
-                <div className="truncate flex items-center gap-2">
+                <div className="truncate flex items-center gap-2 min-w-0">
+                  {canDrag && (
+                    <span className="text-zinc-600 flex-shrink-0">
+                      <GripIcon />
+                    </span>
+                  )}
                   {isPlaying && (
-                    <span className="text-purple-400">
+                    <span className="text-purple-400 flex-shrink-0">
                       <PlayingIcon />
                     </span>
                   )}
-                  <span className={isPlaying ? 'text-purple-300' : 'text-white'}>{track.title || 'Unknown'}</span>
+                  <span className={`truncate ${isPlaying ? 'text-purple-300' : 'text-white'}`}>{track.title || 'Unknown'}</span>
                 </div>
                 <div className={`truncate ${isPlaying ? 'text-purple-300' : 'text-zinc-400'}`}>{track.artist || 'Unknown'}</div>
                 <div className="text-zinc-400">{track.tempo ? formatBPM(track.tempo) : '-'}</div>
@@ -222,32 +377,14 @@ export function TrackList({
                 {isEditMode && (
                   <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                     {selectedPlaylistId !== null ? (
-                      // Playlist view: remove, move up/down
-                      <>
-                        <button
-                          onClick={() => onMoveTrackUp?.(track.id)}
-                          disabled={isFirst}
-                          className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                          title="Move up"
-                        >
-                          <ChevronUpIcon />
-                        </button>
-                        <button
-                          onClick={() => onMoveTrackDown?.(track.id)}
-                          disabled={isLast}
-                          className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                          title="Move down"
-                        >
-                          <ChevronDownIcon />
-                        </button>
-                        <button
-                          onClick={() => onRemoveTrack?.(track.id)}
-                          className="p-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded"
-                          title="Remove from playlist"
-                        >
-                          <TrashIcon />
-                        </button>
-                      </>
+                      // Playlist view: remove button
+                      <button
+                        onClick={() => onRemoveTrack?.(track.id)}
+                        className="p-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded"
+                        title="Remove from playlist"
+                      >
+                        <TrashIcon />
+                      </button>
                     ) : (
                       // All tracks view: add to playlist
                       <div className="relative">
@@ -299,18 +436,15 @@ function PlayingIcon() {
   );
 }
 
-function ChevronUpIcon() {
+function GripIcon() {
   return (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+      <circle cx="9" cy="6" r="1.5" />
+      <circle cx="15" cy="6" r="1.5" />
+      <circle cx="9" cy="12" r="1.5" />
+      <circle cx="15" cy="12" r="1.5" />
+      <circle cx="9" cy="18" r="1.5" />
+      <circle cx="15" cy="18" r="1.5" />
     </svg>
   );
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import type { PlaylistTreeNode, Track, PlaylistEntry } from '../types/rekordbox';
 
 interface PlaylistSidebarProps {
@@ -8,6 +8,8 @@ interface PlaylistSidebarProps {
   selectedPlaylistId: number | null;
   onSelectPlaylist: (id: number | null) => void;
   onSelectAllTracks: () => void;
+  width?: number;
+  onWidthChange?: (width: number) => void;
 }
 
 interface TreeNode {
@@ -18,6 +20,10 @@ interface TreeNode {
   trackCount: number;
 }
 
+const MIN_WIDTH = 180;
+const MAX_WIDTH = 500;
+const DEFAULT_WIDTH = 256;
+
 export function PlaylistSidebar({
   playlistTree,
   playlistEntries,
@@ -25,8 +31,13 @@ export function PlaylistSidebar({
   selectedPlaylistId,
   onSelectPlaylist,
   onSelectAllTracks,
+  width = DEFAULT_WIDTH,
+  onWidthChange,
 }: PlaylistSidebarProps) {
   const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set());
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartX = useRef<number>(0);
+  const resizeStartWidth = useRef<number>(0);
 
   // Build track counts per playlist
   const playlistTrackCounts = useMemo(() => {
@@ -90,6 +101,36 @@ export function PlaylistSidebar({
     });
   };
 
+  // Resize handlers
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = width;
+  }, [width]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const delta = e.clientX - resizeStartX.current;
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, resizeStartWidth.current + delta));
+      onWidthChange?.(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, onWidthChange]);
+
   const renderNode = (node: TreeNode, depth: number = 0) => {
     const isExpanded = expandedFolders.has(node.id);
     const isSelected = selectedPlaylistId === node.id;
@@ -137,7 +178,10 @@ export function PlaylistSidebar({
   };
 
   return (
-    <div className="w-64 bg-zinc-900 border-r border-zinc-800 flex flex-col h-full">
+    <div
+      className="bg-zinc-900 border-r border-zinc-800 flex flex-col h-full relative select-none"
+      style={{ width: `${width}px`, minWidth: `${MIN_WIDTH}px`, maxWidth: `${MAX_WIDTH}px` }}
+    >
       {/* Header */}
       <div className="p-4 border-b border-zinc-800">
         <h2 className="font-semibold text-white">Playlists</h2>
@@ -164,6 +208,14 @@ export function PlaylistSidebar({
       <div className="p-4 border-t border-zinc-800 text-sm text-zinc-500">
         {playlistTree.size} playlists • {tracks.size} tracks
       </div>
+
+      {/* Resize Handle */}
+      <div
+        className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-purple-500 transition-colors ${
+          isResizing ? 'bg-purple-500' : 'bg-transparent hover:bg-zinc-600'
+        }`}
+        onMouseDown={handleResizeStart}
+      />
     </div>
   );
 }
