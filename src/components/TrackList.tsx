@@ -68,13 +68,17 @@ export function TrackList({
   const [sortKey, setSortKey] = useState<SortKey>('order');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [addToPlaylistTrackId, setAddToPlaylistTrackId] = useState<number | null>(null);
-  const [visibleColumns, setVisibleColumns] = useState<string[]>(DEFAULT_VISIBLE_COLUMNS);
+  const [columnOrder, setColumnOrder] = useState<string[]>(DEFAULT_VISIBLE_COLUMNS);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const columnMenuRef = useRef<HTMLDivElement>(null);
 
-  // Drag and drop state
+  // Track drag and drop state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Column drag state
+  const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
 
   // Column resize state
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
@@ -100,19 +104,35 @@ export function TrackList({
 
   const isPlaylistView = selectedPlaylistId !== null;
 
-  // Filter columns based on visibility and context
+  // Get visible columns in order
   const displayColumns = useMemo(() => {
-    return ALL_COLUMNS.filter(col => {
-      if (col.id === 'order' && !isPlaylistView) return false;
-      return visibleColumns.includes(col.id);
-    });
-  }, [visibleColumns, isPlaylistView]);
+    return columnOrder
+      .filter(id => {
+        if (id === 'order' && !isPlaylistView) return false;
+        return true;
+      })
+      .map(id => ALL_COLUMNS.find(c => c.id === id))
+      .filter((c): c is ColumnConfig => c !== undefined);
+  }, [columnOrder, isPlaylistView]);
 
   // Get playlist name
   const playlistName = useMemo(() => {
     if (selectedPlaylistId === null) return 'All Tracks';
     return playlistTree.get(selectedPlaylistId)?.name || 'Playlist';
   }, [selectedPlaylistId, playlistTree]);
+
+  // Build entryIndex map for current playlist
+  const entryIndexMap = useMemo(() => {
+    const map = new Map<number, number>();
+    if (selectedPlaylistId !== null) {
+      const entries = playlistEntries
+        .filter(e => e.playlistId === selectedPlaylistId);
+      for (const entry of entries) {
+        map.set(entry.trackId, entry.entryIndex);
+      }
+    }
+    return map;
+  }, [playlistEntries, selectedPlaylistId]);
 
   // Get tracks for current view
   const displayTracks = useMemo(() => {
@@ -173,19 +193,70 @@ export function TrackList({
   };
 
   const toggleColumn = (columnId: string) => {
-    setVisibleColumns(prev => {
+    setColumnOrder(prev => {
       if (prev.includes(columnId)) {
         return prev.filter(id => id !== columnId);
       } else {
-        // Insert in the same order as ALL_COLUMNS
+        // Insert after the last visible column or at the end
         const allIds = ALL_COLUMNS.map(c => c.id);
-        const newVisible = [...prev, columnId];
-        return newVisible.sort((a, b) => allIds.indexOf(a) - allIds.indexOf(b));
+        const insertIndex = allIds.indexOf(columnId);
+        const newOrder = [...prev];
+        // Find the right position
+        let inserted = false;
+        for (let i = 0; i < newOrder.length; i++) {
+          if (allIds.indexOf(newOrder[i]) > insertIndex) {
+            newOrder.splice(i, 0, columnId);
+            inserted = true;
+            break;
+          }
+        }
+        if (!inserted) newOrder.push(columnId);
+        return newOrder;
       }
     });
   };
 
-  // Drag and drop handlers
+  // Column drag handlers
+  const handleColumnDragStart = (e: React.DragEvent, columnId: string) => {
+    e.stopPropagation();
+    setDraggedColumn(columnId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', columnId);
+  };
+
+  const handleColumnDragOver = (e: React.DragEvent, columnId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draggedColumn && draggedColumn !== columnId) {
+      setDragOverColumn(columnId);
+    }
+  };
+
+  const handleColumnDragLeave = () => {
+    setDragOverColumn(null);
+  };
+
+  const handleColumnDrop = (e: React.DragEvent, targetColumnId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draggedColumn && draggedColumn !== targetColumnId) {
+      setColumnOrder(prev => {
+        const newOrder = prev.filter(id => id !== draggedColumn);
+        const targetIndex = newOrder.indexOf(targetColumnId);
+        newOrder.splice(targetIndex, 0, draggedColumn);
+        return newOrder;
+      });
+    }
+    setDraggedColumn(null);
+    setDragOverColumn(null);
+  };
+
+  const handleColumnDragEnd = () => {
+    setDraggedColumn(null);
+    setDragOverColumn(null);
+  };
+
+  // Track drag and drop handlers
   const handleDragStart = useCallback((e: React.DragEvent, index: number, trackId: number) => {
     e.dataTransfer.setData('application/x-track-id', trackId.toString());
     e.dataTransfer.effectAllowed = 'copyMove';
@@ -259,9 +330,9 @@ export function TrackList({
   const canReorder = isEditMode && isPlaylistView && !searchQuery;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-zinc-950 min-w-0">
+    <div className="flex-1 flex flex-col h-full bg-zinc-950 min-w-0 overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-zinc-800 space-y-4">
+      <div className="p-4 border-b border-zinc-800 space-y-4 flex-shrink-0">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold text-white">{playlistName}</h2>
           <div className="flex items-center gap-2">
@@ -284,7 +355,7 @@ export function TrackList({
                     >
                       <input
                         type="checkbox"
-                        checked={visibleColumns.includes(col.id)}
+                        checked={columnOrder.includes(col.id)}
                         onChange={() => toggleColumn(col.id)}
                         className="rounded border-zinc-600 bg-zinc-900 text-purple-500 focus:ring-purple-500"
                       />
@@ -309,153 +380,171 @@ export function TrackList({
         </div>
 
         {isEditMode && isPlaylistView && (
-          <div className="text-xs text-zinc-500">Drag tracks to reorder them in the playlist</div>
+          <div className="text-xs text-zinc-500">Drag tracks to reorder • Drag column headers to reorganize</div>
         )}
       </div>
 
-      {/* Table Header */}
-      <div
-        className="grid gap-2 px-4 py-2 border-b border-zinc-800 text-sm text-zinc-400 font-medium select-none"
-        style={{ gridTemplateColumns }}
-      >
-        {displayColumns.map(col => (
-          <div key={col.id} className="relative group flex items-center">
-            <button
-              onClick={() => col.sortKey && handleSort(col.sortKey)}
-              className={`flex items-center gap-1 hover:text-white transition-colors truncate ${
-                sortKey === col.sortKey ? 'text-purple-400' : ''
-              }`}
-            >
-              {col.label}
-              {sortKey === col.sortKey && (
-                <span className="text-xs">{sortDir === 'asc' ? '▲' : '▼'}</span>
-              )}
-            </button>
-            <div
-              className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-purple-500 group-hover:bg-zinc-600"
-              onMouseDown={e => handleResizeStart(e, col.id)}
-            />
-          </div>
-        ))}
-        {isEditMode && (
-          <div className="relative group flex items-center">
-            <span>Actions</span>
-            <div
-              className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-purple-500 group-hover:bg-zinc-600"
-              onMouseDown={e => handleResizeStart(e, 'actions')}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Track List */}
-      <div className="flex-1 overflow-y-auto">
-        {displayTracks.length === 0 ? (
-          <div className="flex items-center justify-center h-64 text-zinc-500">
-            {searchQuery ? 'No tracks match your search' : 'No tracks in this playlist'}
-          </div>
-        ) : (
-          displayTracks.map((track, index) => {
-            const isPlaying = currentTrackId === track.id;
-            const isDragging = draggedIndex === index;
-            const isDragOver = dragOverIndex === index;
-            const showAddDropdown = addToPlaylistTrackId === track.id;
-
-            return (
+      {/* Table Container with horizontal scroll */}
+      <div className="flex-1 overflow-auto">
+        <div style={{ minWidth: 'max-content' }}>
+          {/* Table Header */}
+          <div
+            className="grid px-4 py-2 border-b border-zinc-800 text-sm text-zinc-400 font-medium select-none sticky top-0 bg-zinc-950 z-10"
+            style={{ gridTemplateColumns }}
+          >
+            {displayColumns.map(col => (
               <div
-                key={`${track.id}-${index}`}
-                draggable={true}
-                onDragStart={e => handleDragStart(e, index, track.id)}
-                onDragOver={canReorder ? (e => handleDragOver(e, index)) : undefined}
-                onDragLeave={canReorder ? handleDragLeave : undefined}
-                onDrop={canReorder ? (e => handleDrop(e, index)) : undefined}
-                onDragEnd={handleDragEnd}
-                onClick={() => onPlayTrack?.(track)}
-                className={`grid gap-2 px-4 py-2.5 border-b border-zinc-800/50 hover:bg-zinc-900/50 transition-colors text-sm cursor-pointer ${
-                  isPlaying ? 'bg-purple-900/30' : ''
-                } ${isDragging ? 'opacity-50 bg-zinc-800' : ''} ${
-                  isDragOver ? 'border-t-2 border-t-purple-500' : ''
-                } ${canReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                style={{ gridTemplateColumns }}
+                key={col.id}
+                draggable
+                onDragStart={e => handleColumnDragStart(e, col.id)}
+                onDragOver={e => handleColumnDragOver(e, col.id)}
+                onDragLeave={handleColumnDragLeave}
+                onDrop={e => handleColumnDrop(e, col.id)}
+                onDragEnd={handleColumnDragEnd}
+                className={`relative group flex items-center px-1 cursor-grab active:cursor-grabbing ${
+                  dragOverColumn === col.id ? 'bg-purple-600/30' : ''
+                } ${draggedColumn === col.id ? 'opacity-50' : ''}`}
               >
-                {displayColumns.map(col => {
-                  if (col.id === 'order') {
-                    return (
-                      <div key={col.id} className="text-zinc-500 flex items-center gap-1 justify-center">
-                        {canReorder && <GripIcon />}
-                        <span>{index + 1}</span>
-                      </div>
-                    );
-                  }
-                  if (col.id === 'title') {
-                    return (
-                      <div key={col.id} className="truncate flex items-center gap-2 min-w-0">
-                        {isPlaying && <PlayingIcon />}
-                        <span className={isPlaying ? 'text-purple-300' : 'text-white'}>{track.title || 'Unknown'}</span>
-                      </div>
-                    );
-                  }
-                  const value = col.getValue(track);
-                  const formatted = col.format ? col.format(value, track) : (value || '-');
-                  return (
-                    <div
-                      key={col.id}
-                      className={`truncate ${col.id === 'artist' && isPlaying ? 'text-purple-300' : 'text-zinc-400'} ${
-                        col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : ''
-                      }`}
-                    >
-                      {formatted}
-                    </div>
-                  );
-                })}
-
-                {isEditMode && (
-                  <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                    {isPlaylistView ? (
-                      <button
-                        onClick={() => onRemoveTrack?.(track.id)}
-                        className="p-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded"
-                        title="Remove from playlist"
-                      >
-                        <TrashIcon />
-                      </button>
-                    ) : (
-                      <div className="relative">
-                        <button
-                          onClick={() => setAddToPlaylistTrackId(showAddDropdown ? null : track.id)}
-                          className="p-1 text-zinc-400 hover:text-purple-400 hover:bg-purple-900/30 rounded"
-                          title="Add to playlist"
-                        >
-                          <PlusIcon />
-                        </button>
-                        {showAddDropdown && (
-                          <div className="absolute right-0 top-full mt-1 z-50 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 min-w-[160px]">
-                            {availablePlaylists.length === 0 ? (
-                              <div className="px-3 py-2 text-zinc-500 text-xs">No playlists</div>
-                            ) : (
-                              availablePlaylists.map(playlist => (
-                                <button
-                                  key={playlist.id}
-                                  onClick={() => {
-                                    onAddToPlaylist?.(track.id, playlist.id);
-                                    setAddToPlaylistTrackId(null);
-                                  }}
-                                  className="w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white"
-                                >
-                                  {playlist.name}
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
+                <button
+                  onClick={() => col.sortKey && handleSort(col.sortKey)}
+                  className={`flex items-center gap-1 hover:text-white transition-colors truncate ${
+                    sortKey === col.sortKey ? 'text-purple-400' : ''
+                  }`}
+                >
+                  {col.label}
+                  {sortKey === col.sortKey && (
+                    <span className="text-xs">{sortDir === 'asc' ? '▲' : '▼'}</span>
+                  )}
+                </button>
+                <div
+                  className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-purple-500 opacity-0 group-hover:opacity-100"
+                  onMouseDown={e => handleResizeStart(e, col.id)}
+                />
               </div>
-            );
-          })
-        )}
+            ))}
+            {isEditMode && (
+              <div className="relative group flex items-center px-1">
+                <span>Actions</span>
+                <div
+                  className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-purple-500 opacity-0 group-hover:opacity-100"
+                  onMouseDown={e => handleResizeStart(e, 'actions')}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Track List */}
+          {displayTracks.length === 0 ? (
+            <div className="flex items-center justify-center h-64 text-zinc-500">
+              {searchQuery ? 'No tracks match your search' : 'No tracks in this playlist'}
+            </div>
+          ) : (
+            displayTracks.map((track, index) => {
+              const isPlaying = currentTrackId === track.id;
+              const isDragging = draggedIndex === index;
+              const isDragOver = dragOverIndex === index;
+              const showAddDropdown = addToPlaylistTrackId === track.id;
+
+              return (
+                <div
+                  key={`${track.id}-${index}`}
+                  draggable={true}
+                  onDragStart={e => handleDragStart(e, index, track.id)}
+                  onDragOver={canReorder ? (e => handleDragOver(e, index)) : undefined}
+                  onDragLeave={canReorder ? handleDragLeave : undefined}
+                  onDrop={canReorder ? (e => handleDrop(e, index)) : undefined}
+                  onDragEnd={handleDragEnd}
+                  onClick={() => onPlayTrack?.(track)}
+                  className={`grid px-4 py-2.5 border-b border-zinc-800/50 hover:bg-zinc-900/50 transition-colors text-sm cursor-pointer ${
+                    isPlaying ? 'bg-purple-900/30' : ''
+                  } ${isDragging ? 'opacity-50 bg-zinc-800' : ''} ${
+                    isDragOver ? 'border-t-2 border-t-purple-500' : ''
+                  } ${canReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                  style={{ gridTemplateColumns }}
+                >
+                  {displayColumns.map(col => {
+                    if (col.id === 'order') {
+                      // Show the actual playlist order (entryIndex), not display index
+                      const orderNum = isPlaylistView
+                        ? (entryIndexMap.get(track.id) ?? index) + 1
+                        : index + 1;
+                      return (
+                        <div key={col.id} className="text-zinc-500 flex items-center gap-1 justify-center px-1">
+                          {canReorder && <GripIcon />}
+                          <span>{orderNum}</span>
+                        </div>
+                      );
+                    }
+                    if (col.id === 'title') {
+                      return (
+                        <div key={col.id} className="truncate flex items-center gap-2 min-w-0 px-1">
+                          {isPlaying && <PlayingIcon />}
+                          <span className={isPlaying ? 'text-purple-300' : 'text-white'}>{track.title || 'Unknown'}</span>
+                        </div>
+                      );
+                    }
+                    const value = col.getValue(track);
+                    const formatted = col.format ? col.format(value, track) : (value || '-');
+                    return (
+                      <div
+                        key={col.id}
+                        className={`truncate px-1 ${col.id === 'artist' && isPlaying ? 'text-purple-300' : 'text-zinc-400'} ${
+                          col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : ''
+                        }`}
+                      >
+                        {formatted}
+                      </div>
+                    );
+                  })}
+
+                  {isEditMode && (
+                    <div className="flex items-center gap-1 px-1" onClick={e => e.stopPropagation()}>
+                      {isPlaylistView ? (
+                        <button
+                          onClick={() => onRemoveTrack?.(track.id)}
+                          className="p-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded"
+                          title="Remove from playlist"
+                        >
+                          <TrashIcon />
+                        </button>
+                      ) : (
+                        <div className="relative">
+                          <button
+                            onClick={() => setAddToPlaylistTrackId(showAddDropdown ? null : track.id)}
+                            className="p-1 text-zinc-400 hover:text-purple-400 hover:bg-purple-900/30 rounded"
+                            title="Add to playlist"
+                          >
+                            <PlusIcon />
+                          </button>
+                          {showAddDropdown && (
+                            <div className="absolute right-0 top-full mt-1 z-50 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 min-w-[160px]">
+                              {availablePlaylists.length === 0 ? (
+                                <div className="px-3 py-2 text-zinc-500 text-xs">No playlists</div>
+                              ) : (
+                                availablePlaylists.map(playlist => (
+                                  <button
+                                    key={playlist.id}
+                                    onClick={() => {
+                                      onAddToPlaylist?.(track.id, playlist.id);
+                                      setAddToPlaylistTrackId(null);
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                                  >
+                                    {playlist.name}
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );
