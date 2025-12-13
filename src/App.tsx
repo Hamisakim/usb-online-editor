@@ -120,32 +120,42 @@ function App() {
   return (
     <div className="h-screen flex flex-col bg-zinc-950">
       {/* Top Bar */}
-      <header className="h-14 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between px-4">
+      <header className="h-12 bg-zinc-900/80 backdrop-blur border-b border-zinc-800/80 flex items-center justify-between px-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold text-white">USB Playlist Editor</h1>
-          <span className="text-zinc-500 text-sm">Rekordbox</span>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-purple-700 rounded flex items-center justify-center">
+              <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.894A4.37 4.37 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z" />
+              </svg>
+            </div>
+            <h1 className="text-sm font-semibold text-white">USB Playlist Editor</h1>
+          </div>
+          <span className="text-zinc-600 text-xs">|</span>
+          <span className="text-zinc-500 text-xs font-medium">Rekordbox</span>
           {playlistEditor.hasUnsavedChanges && (
-            <span className="bg-yellow-600 text-yellow-100 text-xs px-2 py-0.5 rounded">Unsaved changes</span>
+            <span className="bg-amber-500/20 text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-medium">
+              Unsaved
+            </span>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {playlistEditor.hasUnsavedChanges && (
             <>
               <button
                 onClick={playlistEditor.discardChanges}
                 disabled={isSaving}
-                className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-xs text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-50"
               >
-                Discard Changes
+                Discard
               </button>
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="px-3 py-1.5 text-sm bg-purple-600 text-white hover:bg-purple-500 rounded transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="px-3 py-1.5 text-xs bg-purple-600 text-white hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5 font-medium shadow-lg shadow-purple-900/20"
               >
                 {isSaving ? (
                   <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
@@ -157,21 +167,22 @@ function App() {
               </button>
             </>
           )}
+          <div className="w-px h-5 bg-zinc-800 mx-1" />
           <button
             onClick={() => setIsEditMode(!isEditMode)}
-            className={`px-3 py-1.5 text-sm rounded transition-colors ${
+            className={`px-3 py-1.5 text-xs rounded-lg transition-all font-medium ${
               isEditMode
-                ? 'bg-purple-600 text-white'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/30'
                 : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
             }`}
           >
-            {isEditMode ? 'Done Editing' : 'Edit Mode'}
+            {isEditMode ? 'Done' : 'Edit'}
           </button>
           <button
             onClick={clearDatabase}
-            className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition-colors"
+            className="px-3 py-1.5 text-xs text-zinc-500 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
           >
-            Close USB
+            Close
           </button>
         </div>
       </header>

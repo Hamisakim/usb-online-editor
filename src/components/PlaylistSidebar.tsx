@@ -176,14 +176,14 @@ export function PlaylistSidebar({
           onDragOver={node.isFolder ? undefined : (e) => handleDragOver(e, node.id)}
           onDragLeave={node.isFolder ? undefined : handleDragLeave}
           onDrop={node.isFolder ? undefined : (e) => handleDrop(e, node.id)}
-          className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-zinc-800 transition-colors ${
-            isSelected ? 'bg-purple-900/50 text-purple-300' : 'text-zinc-300'
-          } ${isDragOver ? 'bg-purple-600/50 ring-2 ring-purple-500' : ''}`}
+          className={`w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-zinc-800/50 transition-colors text-sm ${
+            isSelected ? 'bg-purple-900/40 text-purple-300' : 'text-zinc-400 hover:text-zinc-200'
+          } ${isDragOver ? 'bg-purple-600/40 ring-1 ring-purple-500 ring-inset' : ''}`}
           style={{ paddingLeft: `${12 + depth * 16}px` }}
         >
           {node.isFolder ? (
             <>
-              <span className="text-zinc-500 w-4">
+              <span className="text-zinc-600 w-4 text-[10px]">
                 {isExpanded ? '▼' : '▶'}
               </span>
               <FolderIcon />
@@ -194,7 +194,7 @@ export function PlaylistSidebar({
               <span className="w-4" />
               <PlaylistIcon />
               <span className="truncate flex-1">{node.name}</span>
-              <span className="text-zinc-500 text-sm">{node.trackCount}</span>
+              <span className="text-zinc-600 text-xs tabular-nums">{node.trackCount}</span>
             </>
           )}
         </button>
@@ -210,39 +210,39 @@ export function PlaylistSidebar({
 
   return (
     <div
-      className="bg-zinc-900 border-r border-zinc-800 flex flex-col h-full relative select-none"
+      className="bg-zinc-900/50 border-r border-zinc-800/80 flex flex-col h-full relative select-none"
       style={{ width: `${width}px`, minWidth: `${MIN_WIDTH}px`, maxWidth: `${MAX_WIDTH}px` }}
     >
       {/* Header */}
-      <div className="p-4 border-b border-zinc-800">
-        <h2 className="font-semibold text-white">Playlists</h2>
+      <div className="px-4 py-3 border-b border-zinc-800/80">
+        <h2 className="font-semibold text-zinc-200 text-sm tracking-wide uppercase">Playlists</h2>
       </div>
 
       {/* All Tracks */}
       <button
         onClick={onSelectAllTracks}
-        className={`w-full text-left px-4 py-2 flex items-center gap-2 hover:bg-zinc-800 transition-colors border-b border-zinc-800 ${
-          selectedPlaylistId === null ? 'bg-purple-900/50 text-purple-300' : 'text-zinc-300'
+        className={`w-full text-left px-4 py-2.5 flex items-center gap-3 hover:bg-zinc-800/50 transition-colors border-b border-zinc-800/50 ${
+          selectedPlaylistId === null ? 'bg-purple-900/40 text-purple-300' : 'text-zinc-300'
         }`}
       >
         <MusicIcon />
-        <span className="flex-1">All Tracks</span>
-        <span className="text-zinc-500 text-sm">{tracks.size}</span>
+        <span className="flex-1 font-medium">All Tracks</span>
+        <span className="text-zinc-500 text-xs tabular-nums">{tracks.size}</span>
       </button>
 
       {/* Tree */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto py-1">
         {tree.map(node => renderNode(node))}
       </div>
 
       {/* Stats */}
-      <div className="p-4 border-t border-zinc-800 text-sm text-zinc-500">
-        {playlistTree.size} playlists • {tracks.size} tracks
+      <div className="px-4 py-3 border-t border-zinc-800/80 text-xs text-zinc-500">
+        {playlistTree.size} playlists &middot; {tracks.size} tracks
       </div>
 
       {/* Resize Handle */}
       <div
-        className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-purple-500 transition-colors ${
+        className={`absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize transition-colors ${
           isResizing ? 'bg-purple-500' : 'bg-transparent hover:bg-zinc-600'
         }`}
         onMouseDown={handleResizeStart}

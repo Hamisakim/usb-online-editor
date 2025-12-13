@@ -38,7 +38,7 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
       const audioBuffer = await offlineContext.decodeAudioData(arrayBuffer);
 
       const rawData = audioBuffer.getChannelData(0);
-      const samples = 200; // Number of bars in waveform
+      const samples = 200;
       const blockSize = Math.floor(rawData.length / samples);
       const waveformData: number[] = [];
 
@@ -48,13 +48,11 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
         for (let j = 0; j < blockSize; j++) {
           sum += Math.abs(rawData[start + j] || 0);
         }
-        // Normalize and apply some compression for better visualization
         const avg = sum / blockSize;
-        const normalized = Math.pow(avg, 0.7); // Compression for better dynamic range
+        const normalized = Math.pow(avg, 0.7);
         waveformData.push(normalized);
       }
 
-      // Normalize to 0-1 range
       const max = Math.max(...waveformData, 0.01);
       const normalized = waveformData.map(v => v / max);
 
@@ -98,57 +96,47 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
     const progress = duration > 0 ? currentTime / duration : 0;
     const progressWidth = width * progress;
 
-    ctx.fillStyle = '#18181b';
+    ctx.fillStyle = '#09090b';
     ctx.fillRect(0, 0, width, height);
 
     if (fullWaveform.length === 0) {
-      // Draw loading placeholder
       if (isLoadingWaveform) {
-        ctx.fillStyle = '#3f3f46';
-        ctx.font = '12px sans-serif';
+        ctx.fillStyle = '#52525b';
+        ctx.font = '11px system-ui, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Loading waveform...', width / 2, height / 2 + 4);
       } else {
-        // Draw placeholder bars
-        const barCount = 100;
+        const barCount = 120;
         const barWidth = width / barCount;
         for (let i = 0; i < barCount; i++) {
           const barHeight = (Math.sin(i * 0.2) * 0.2 + 0.3) * height;
           const x = i * barWidth;
           const y = (height - barHeight) / 2;
 
-          if (x < progressWidth) {
-            ctx.fillStyle = '#a855f7';
-          } else {
-            ctx.fillStyle = '#3f3f46';
-          }
+          ctx.fillStyle = x < progressWidth ? '#a855f7' : '#27272a';
           ctx.fillRect(x, y, barWidth - 1, barHeight);
         }
       }
     } else {
-      // Draw actual waveform - mirrored style
       const barWidth = width / fullWaveform.length;
       for (let i = 0; i < fullWaveform.length; i++) {
-        const barHeight = fullWaveform[i] * height * 0.85;
+        const barHeight = fullWaveform[i] * height * 0.9;
         const x = i * barWidth;
         const y = (height - barHeight) / 2;
 
         if (x < progressWidth) {
-          // Played portion - purple gradient
           const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
           gradient.addColorStop(0, '#c084fc');
           gradient.addColorStop(0.5, '#a855f7');
           gradient.addColorStop(1, '#c084fc');
           ctx.fillStyle = gradient;
         } else {
-          // Unplayed portion - gray
-          ctx.fillStyle = '#52525b';
+          ctx.fillStyle = '#3f3f46';
         }
         ctx.fillRect(x, y, Math.max(barWidth - 1, 1), barHeight);
       }
     }
 
-    // Draw playhead
     if (duration > 0) {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(progressWidth - 1, 0, 2, height);
@@ -169,7 +157,7 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
     const progress = duration > 0 ? currentTime / duration : 0;
     const progressWidth = width * progress;
 
-    ctx.fillStyle = '#18181b';
+    ctx.fillStyle = '#09090b';
     ctx.fillRect(0, 0, width, height);
 
     if (analyser && isPlaying) {
@@ -177,7 +165,6 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
       const dataArray = new Uint8Array(bufferLength);
       analyser.getByteFrequencyData(dataArray);
 
-      // Store for when paused
       setSpectrumData(Array.from(dataArray).map(v => v / 255));
 
       const barWidth = width / bufferLength;
@@ -193,7 +180,7 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
           gradient.addColorStop(1, '#7c3aed');
           ctx.fillStyle = gradient;
         } else {
-          ctx.fillStyle = '#3f3f46';
+          ctx.fillStyle = '#27272a';
         }
 
         ctx.fillRect(x, y, barWidth - 1, barHeight);
@@ -201,37 +188,21 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
 
       animationRef.current = requestAnimationFrame(drawSpectrum);
     } else if (spectrumData.length > 0) {
-      // Draw static spectrum when paused
       const barWidth = width / spectrumData.length;
       for (let i = 0; i < spectrumData.length; i++) {
         const barHeight = spectrumData[i] * height * 0.9;
         const x = i * barWidth;
         const y = height - barHeight;
 
-        if (x < progressWidth) {
-          ctx.fillStyle = '#a855f7';
-        } else {
-          ctx.fillStyle = '#3f3f46';
-        }
+        ctx.fillStyle = x < progressWidth ? '#a855f7' : '#27272a';
         ctx.fillRect(x, y, barWidth - 1, barHeight);
       }
     }
 
-    // Draw playhead
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(progressWidth - 1, 0, 2, height);
   }, [currentTime, duration, isPlaying, spectrumData]);
 
-  // Main draw function based on mode
-  const draw = useCallback(() => {
-    if (waveformMode === 'waveform') {
-      drawFullWaveform();
-    } else {
-      drawSpectrum();
-    }
-  }, [waveformMode, drawFullWaveform, drawSpectrum]);
-
-  // Animation loop for spectrum mode
   useEffect(() => {
     if (waveformMode === 'spectrum' && isPlaying && analyserRef.current) {
       drawSpectrum();
@@ -246,7 +217,6 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
     };
   }, [waveformMode, isPlaying, drawSpectrum]);
 
-  // Redraw waveform when time/mode changes
   useEffect(() => {
     if (waveformMode === 'waveform') {
       drawFullWaveform();
@@ -262,15 +232,10 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
   }, [volume]);
 
   useEffect(() => {
-    // When audio URL changes, reset and play
     if (audioUrl && audioRef.current) {
-      // Generate full waveform
       generateFullWaveform(audioUrl);
-
-      // Reset spectrum data
       setSpectrumData([]);
 
-      // Initialize audio context on first interaction
       if (!audioContextRef.current) {
         initAudioContext();
       }
@@ -286,7 +251,6 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
     }
   }, [audioUrl, initAudioContext, generateFullWaveform]);
 
-  // Clean up on unmount
   useEffect(() => {
     return () => {
       if (animationRef.current) {
@@ -360,59 +324,73 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
 
   if (!track) {
     return (
-      <div className="h-24 bg-zinc-900 border-t border-zinc-800 flex items-center justify-center text-zinc-500">
-        Select a track to play
+      <div className="h-28 bg-zinc-900/80 backdrop-blur border-t border-zinc-800 flex items-center justify-center text-zinc-600">
+        <div className="flex flex-col items-center gap-1">
+          <MusicIcon />
+          <span className="text-sm">Select a track to play</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="h-24 bg-zinc-900 border-t border-zinc-800 flex flex-col">
-      {/* Waveform */}
-      <div className="h-10 px-4 pt-2">
-        <div className="relative h-full bg-zinc-950 rounded overflow-hidden">
+    <div className="h-28 bg-zinc-900/95 backdrop-blur border-t border-zinc-800 flex flex-col">
+      {/* Hidden audio element */}
+      <audio
+        ref={audioRef}
+        src={audioUrl || undefined}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onEnded={handleEnded}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        crossOrigin="anonymous"
+      />
+
+      {/* Waveform Section */}
+      <div className="px-4 pt-3 pb-2">
+        <div className="relative h-12 bg-zinc-950 rounded-lg overflow-hidden shadow-inner">
           <canvas
             ref={canvasRef}
-            width={800}
-            height={40}
+            width={1200}
+            height={48}
             className="w-full h-full cursor-pointer"
             onClick={handleSeek}
           />
-          {/* Time markers */}
-          <div className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-white font-mono bg-zinc-950/80 px-1 rounded">
-            {formatTime(currentTime)}
-          </div>
-          <div className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400 font-mono bg-zinc-950/80 px-1 rounded">
-            {formatTime(duration)}
+          {/* Time overlay */}
+          <div className="absolute inset-x-0 bottom-0 flex justify-between px-3 pb-1 pointer-events-none">
+            <span className="text-[11px] font-medium text-white/90 tabular-nums drop-shadow">
+              {formatTime(currentTime)}
+            </span>
+            <span className="text-[11px] font-medium text-zinc-400 tabular-nums drop-shadow">
+              -{formatTime(Math.max(0, duration - currentTime))}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="flex-1 flex items-center px-4 gap-4">
-        {/* Hidden audio element */}
-        <audio
-          ref={audioRef}
-          src={audioUrl || undefined}
-          onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={handleLoadedMetadata}
-          onEnded={handleEnded}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-          crossOrigin="anonymous"
-        />
-
+      {/* Controls Section */}
+      <div className="flex-1 flex items-center px-4 gap-6">
         {/* Track Info */}
-        <div className="w-48 min-w-0">
-          <div className="truncate text-white text-sm font-medium">{track.title || 'Unknown'}</div>
-          <div className="truncate text-zinc-400 text-xs">{track.artist || 'Unknown Artist'}</div>
+        <div className="w-52 min-w-0 flex items-center gap-3">
+          <div className="w-10 h-10 bg-zinc-800 rounded flex items-center justify-center flex-shrink-0">
+            <MusicIcon className="w-5 h-5 text-zinc-500" />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-white text-sm font-medium leading-tight">
+              {track.title || 'Unknown'}
+            </div>
+            <div className="truncate text-zinc-500 text-xs leading-tight mt-0.5">
+              {track.artist || 'Unknown Artist'}
+            </div>
+          </div>
         </div>
 
         {/* Playback Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
             onClick={onPrevious}
-            className="p-2 text-zinc-400 hover:text-white transition-colors"
+            className="p-2 text-zinc-400 hover:text-white transition-colors rounded-full hover:bg-zinc-800"
             disabled={!onPrevious}
           >
             <PreviousIcon />
@@ -420,7 +398,7 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
 
           <button
             onClick={togglePlay}
-            className="p-3 bg-white rounded-full text-black hover:scale-105 transition-transform disabled:opacity-50"
+            className="p-3 bg-white rounded-full text-black hover:scale-105 hover:bg-zinc-100 transition-all disabled:opacity-50 shadow-lg"
             disabled={!audioUrl}
           >
             {isPlaying ? <PauseIcon /> : <PlayIcon />}
@@ -428,7 +406,7 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
 
           <button
             onClick={onNext}
-            className="p-2 text-zinc-400 hover:text-white transition-colors"
+            className="p-2 text-zinc-400 hover:text-white transition-colors rounded-full hover:bg-zinc-800"
             disabled={!onNext}
           >
             <NextIcon />
@@ -436,13 +414,13 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
         </div>
 
         {/* Waveform mode toggle */}
-        <div className="flex items-center bg-zinc-800 rounded-lg p-0.5">
+        <div className="flex items-center bg-zinc-800/50 rounded-lg p-1 gap-0.5">
           <button
             onClick={() => setWaveformMode('waveform')}
-            className={`px-2 py-1 text-xs rounded transition-colors ${
+            className={`p-1.5 rounded transition-all ${
               waveformMode === 'waveform'
-                ? 'bg-purple-600 text-white'
-                : 'text-zinc-400 hover:text-white'
+                ? 'bg-purple-600 text-white shadow'
+                : 'text-zinc-500 hover:text-zinc-300'
             }`}
             title="Full track waveform"
           >
@@ -450,10 +428,10 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
           </button>
           <button
             onClick={() => setWaveformMode('spectrum')}
-            className={`px-2 py-1 text-xs rounded transition-colors ${
+            className={`p-1.5 rounded transition-all ${
               waveformMode === 'spectrum'
-                ? 'bg-purple-600 text-white'
-                : 'text-zinc-400 hover:text-white'
+                ? 'bg-purple-600 text-white shadow'
+                : 'text-zinc-500 hover:text-zinc-300'
             }`}
             title="Real-time spectrum"
           >
@@ -464,28 +442,39 @@ export function AudioPlayer({ track, audioUrl, onNext, onPrevious }: AudioPlayer
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Volume with indicator */}
-        <div className="flex items-center gap-2 w-36">
-          <VolumeIcon muted={volume === 0} />
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={volume}
-            onChange={(e) => setVolume(parseFloat(e.target.value))}
-            className="flex-1 h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full"
-          />
-          <span className="text-xs text-zinc-400 w-8 text-right">{volumePercent}%</span>
+        {/* Volume Control */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setVolume(v => v > 0 ? 0 : 0.8)}
+            className="p-1 text-zinc-400 hover:text-white transition-colors"
+          >
+            <VolumeIcon muted={volume === 0} />
+          </button>
+          <div className="w-24 flex items-center gap-2">
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              className="flex-1 h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-purple-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:transition-transform"
+            />
+            <span className="text-xs text-zinc-500 w-7 text-right tabular-nums">{volumePercent}%</span>
+          </div>
         </div>
 
-        {/* BPM/Key Info */}
-        <div className="flex items-center gap-2 text-xs text-zinc-400">
+        {/* Track Info Tags */}
+        <div className="flex items-center gap-2">
           {track.tempo > 0 && (
-            <span className="bg-zinc-800 px-2 py-1 rounded">{(track.tempo / 100).toFixed(1)} BPM</span>
+            <span className="bg-zinc-800/80 text-zinc-300 text-xs px-2.5 py-1 rounded-full font-medium">
+              {(track.tempo / 100).toFixed(1)} BPM
+            </span>
           )}
           {track.key && (
-            <span className="bg-zinc-800 px-2 py-1 rounded">{track.key}</span>
+            <span className="bg-purple-900/50 text-purple-300 text-xs px-2.5 py-1 rounded-full font-medium">
+              {track.key}
+            </span>
           )}
         </div>
       </div>
@@ -528,13 +517,13 @@ function NextIcon() {
 function VolumeIcon({ muted }: { muted?: boolean }) {
   if (muted) {
     return (
-      <svg className="w-4 h-4 text-zinc-400" fill="currentColor" viewBox="0 0 20 20">
+      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
         <path d="M9.547 3.062A.75.75 0 0110 3.75v12.5a.75.75 0 01-1.264.546L4.703 13H3.167a.75.75 0 01-.7-.48A6.985 6.985 0 012 10c0-.887.165-1.737.468-2.52a.75.75 0 01.7-.48h1.535l4.033-3.796a.75.75 0 01.811-.142zM13.28 6.22a.75.75 0 111.06 1.06L12.81 8.81l1.53 1.53a.75.75 0 01-1.06 1.06l-1.53-1.53-1.53 1.53a.75.75 0 11-1.06-1.06l1.53-1.53-1.53-1.53a.75.75 0 011.06-1.06l1.53 1.53 1.53-1.53z" />
       </svg>
     );
   }
   return (
-    <svg className="w-4 h-4 text-zinc-400" fill="currentColor" viewBox="0 0 20 20">
+    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
       <path d="M10 3.75a.75.75 0 00-1.264-.546L4.703 7H3.167a.75.75 0 00-.7.48A6.985 6.985 0 002 10c0 .887.165 1.737.468 2.52.111.29.39.48.7.48h1.535l4.033 3.796A.75.75 0 0010 16.25V3.75zM15.95 5.05a.75.75 0 00-1.06 1.061 5.5 5.5 0 010 7.778.75.75 0 001.06 1.06 7 7 0 000-9.899z" />
       <path d="M13.829 7.172a.75.75 0 00-1.061 1.06 2.5 2.5 0 010 3.536.75.75 0 001.06 1.06 4 4 0 000-5.656z" />
     </svg>
@@ -553,6 +542,14 @@ function SpectrumIcon() {
   return (
     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
       <path d="M3 17h2v4H3v-4zm4-5h2v9H7v-9zm4-4h2v13h-2V8zm4 2h2v11h-2V10zm4-6h2v17h-2V4z" />
+    </svg>
+  );
+}
+
+function MusicIcon({ className = "w-6 h-6" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 9l10.5-3m0 6.553v3.75a2.25 2.25 0 01-1.632 2.163l-1.32.377a1.803 1.803 0 11-.99-3.467l2.31-.66a2.25 2.25 0 001.632-2.163zm0 0V4.5l-10.5 3v9.75m0 0a2.25 2.25 0 01-1.632 2.163l-1.32.377a1.803 1.803 0 11-.99-3.467l2.31-.66A2.25 2.25 0 009 17.25z" />
     </svg>
   );
 }
