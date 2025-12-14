@@ -8,15 +8,15 @@ export default defineConfig({
   base: './', // Use relative paths for assets
   resolve: {
     alias: {
-      // Provide empty stubs for Node.js modules that aren't needed in browser
-      'iconv-lite': 'data:text/javascript,export default {}',
-      'string_decoder': 'data:text/javascript,export default {}',
-      'zlib': 'data:text/javascript,export default {}',
-      'buffer': 'data:text/javascript,export default {}',
+      // Stub out Node.js modules not needed in browser
+      'iconv-lite': new URL('./src/stubs/empty.js', import.meta.url).pathname,
+      'string_decoder': new URL('./src/stubs/empty.js', import.meta.url).pathname,
+      'zlib': new URL('./src/stubs/empty.js', import.meta.url).pathname,
+      'buffer': new URL('./src/stubs/empty.js', import.meta.url).pathname,
     }
   },
   optimizeDeps: {
-    exclude: ['rekordbox-parser']
+    include: ['rekordbox-parser'], // Pre-bundle to convert CJS to ESM
   },
   build: {
     commonjsOptions: {
