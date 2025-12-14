@@ -1,73 +1,66 @@
-# React + TypeScript + Vite
+# USB Playlist Editor
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A browser-based editor for Rekordbox USB playlists. Edit your DJ playlists directly from your USB drive without opening Rekordbox.
 
-Currently, two official plugins are available:
+**[Live Demo](https://djmyusb.netlify.app)**
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
 
-## React Compiler
+- **Direct USB Access** - Edit playlists directly on your USB drive using the File System Access API
+- **Drag & Drop Reordering** - Intuitive drag-and-drop interface for reordering tracks
+- **Audio Preview** - Play tracks directly from your USB with waveform visualization
+- **Rekordbox-Style UI** - Familiar column layout with sortable fields (BPM, Key, Genre, etc.)
+- **Safe Editing** - Automatic backups created before saving changes
+- **Fast Performance** - Optimized binary parser for quick loading of large libraries
+- **No Installation** - Runs entirely in your browser, no downloads needed
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Tech Stack
 
-## Expanding the ESLint configuration
+- **React 19** - UI framework
+- **TypeScript** - Type safety
+- **Vite** - Build tool and dev server
+- **Tailwind CSS 4** - Styling
+- **File System Access API** - Direct USB drive access
+- **rekordbox-parser** - PDB database parsing
+- **Web Audio API** - Audio playback and waveform generation
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Browser Compatibility
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Requires a browser with File System Access API support:
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- Chrome/Edge 86+
+- Opera 72+
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Note: Firefox and Safari do not currently support the File System Access API.
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev
+
+# Build for production
+npm run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## How It Works
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+1. Select your USB drive or PIONEER folder
+2. The app reads and parses the `export.pdb` file
+3. Edit playlists using drag-and-drop or remove tracks
+4. Save changes back to the USB (creates automatic backup)
+5. Eject USB and use with CDJs/XDJs
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Technical Details
+
+The app directly modifies the Rekordbox `export.pdb` file by:
+
+- Parsing the DeviceSQL binary format using `rekordbox-parser`
+- Locating playlist entry records in the binary data
+- Updating `entry_index` values to reflect new track order
+- Writing modified binary back to the USB drive
+
+All modifications are done client-side in the browser - no server or data upload required.
